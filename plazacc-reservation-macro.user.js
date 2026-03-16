@@ -1,11 +1,14 @@
 // ==UserScript==
 // @name         플라자CC 예약 매크로
 // @namespace    plazacc-macro
-// @version      1.0
+// @version      1.2
 // @description  플라자CC 골프장 정기예약 자동화 (시간 매칭 + 자동 클릭)
-// @match        https://www.plazacc.co.kr/plzcc/irsweb/golf2/*
+// @match        *://plazacc.co.kr/*
+// @match        *://*.plazacc.co.kr/*
+// @include      *plazacc.co.kr*
 // @grant        none
 // @run-at       document-idle
+// @noframes
 // ==/UserScript==
 
 (function () {
