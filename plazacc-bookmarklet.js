@@ -1,4 +1,4 @@
-// 플라자CC 매크로 - 북마클릿 버전 (Tampermonkey 불필요)
+// 플라자CC 매크로 - 북마클릿 버전 v3 (iframe 지원)
 (function(){
 if(document.getElementById('plazacc-macro-panel')){alert('매크로가 이미 실행 중입니다!');return;}
 
@@ -10,30 +10,65 @@ function save(s){
   try{localStorage.setItem('plazacc-macro-settings',JSON.stringify(s));}catch(e){}
 }
 
+// 모든 iframe을 재귀적으로 탐색하여 document 목록 반환
+function getAllDocs(){
+  var docs=[document];
+  function dig(doc){
+    try{
+      var frames=doc.querySelectorAll('iframe');
+      for(var i=0;i<frames.length;i++){
+        try{
+          var d=frames[i].contentDocument;
+          if(d&&d.body){docs.push(d);dig(d);}
+        }catch(e){}
+      }
+    }catch(e){}
+  }
+  dig(document);
+  return docs;
+}
+
+// confirmPopup('날짜','ID','시간(4자리)','지점','코스',...) 패턴으로 슬롯 스캔
 function scanSlots(){
   var slots=[];
-  var els=document.querySelectorAll('a, button, input[type="button"], span[onclick], td[onclick], div[onclick]');
-  for(var i=0;i<els.length;i++){
-    var el=els[i];
-    var text=(el.textContent||el.value||'').trim();
-    var oc=el.getAttribute('onclick')||el.getAttribute('href')||'';
-    var m=oc.match(/confirmPopup\s*\(\s*'([^']+)'\s*,\s*'([^']+)'\s*,\s*'(\d{4})'\s*,\s*'([^']+)'\s*,\s*'([^']+)'/);
-    if(m){slots.push({time:m[3].substring(0,2)+':'+m[3].substring(2,4),course:m[5],element:el});continue;}
-    var timeMatch=oc.match(/(\d{2}):?(\d{2})/);
-    if(timeMatch&&(text==='예약'||text==='신청'||oc.indexOf('eserv')>=0||oc.indexOf('ooking')>=0)){
-      var courseMatch=oc.match(/(T-?OUT|T-?IN|L-?OUT|L-?IN)/i);
-      slots.push({time:timeMatch[1]+':'+timeMatch[2],course:courseMatch?courseMatch[1].toUpperCase():'',element:el});
+  var docs=getAllDocs();
+  for(var di=0;di<docs.length;di++){
+    var doc=docs[di];
+    // 방법1: confirmPopup 링크 직접 찾기
+    var links=doc.querySelectorAll('a[href*="confirmPopup"]');
+    for(var i=0;i<links.length;i++){
+      var href=links[i].getAttribute('href')||'';
+      var m=href.match(/confirmPopup\s*\(\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'(\d{4})'\s*,\s*'([^']*)'\s*,\s*'([^']*)'/);
+      if(m){
+        slots.push({
+          date:m[1],
+          id:m[2],
+          time:m[3].substring(0,2)+':'+m[3].substring(2,4),
+          timeRaw:m[3],
+          branch:m[4],
+          course:m[5],
+          element:links[i]
+        });
+      }
     }
-  }
-  if(slots.length===0){
-    var rows=document.querySelectorAll('table tr');
-    for(var r=0;r<rows.length;r++){
-      var rt=rows[r].textContent;
-      var tm=rt.match(/(\d{2}):(\d{2})/);
-      if(!tm)continue;
-      var cm=rt.match(/(T[\-_]?OUT|T[\-_]?IN|L[\-_]?OUT|L[\-_]?IN)/i);
-      var ce=rows[r].querySelector('a[href],button,[onclick]');
-      if(ce)slots.push({time:tm[1]+':'+tm[2],course:cm?cm[1].toUpperCase():'',element:ce});
+    // 방법2: onclick에 confirmPopup이 있는 경우
+    if(slots.length===0){
+      var els=doc.querySelectorAll('[onclick*="confirmPopup"]');
+      for(var j=0;j<els.length;j++){
+        var oc=els[j].getAttribute('onclick')||'';
+        var m2=oc.match(/confirmPopup\s*\(\s*'([^']*)'\s*,\s*'([^']*)'\s*,\s*'(\d{4})'\s*,\s*'([^']*)'\s*,\s*'([^']*)'/);
+        if(m2){
+          slots.push({
+            date:m2[1],
+            id:m2[2],
+            time:m2[3].substring(0,2)+':'+m2[3].substring(2,4),
+            timeRaw:m2[3],
+            branch:m2[4],
+            course:m2[5],
+            element:els[j]
+          });
+        }
+      }
     }
   }
   return slots;
@@ -47,7 +82,13 @@ function filterAndSort(slots,s){
   var f=slots.filter(function(x){var t=timeToMin(x.time);return t>=from&&t<=to;});
   if(s.course==='T-OUT-only')f=f.filter(function(x){return x.course==='T-OUT';});
   else if(s.course==='T-IN-only')f=f.filter(function(x){return x.course==='T-IN';});
-  var om=s.course==='T-IN-first'?{'T-IN':0,'T-OUT':1,'L-IN':2,'L-OUT':3}:{'T-OUT':0,'T-IN':1,'L-OUT':2,'L-IN':3};
+  else if(s.course==='L-OUT-only')f=f.filter(function(x){return x.course==='L-OUT';});
+  else if(s.course==='L-IN-only')f=f.filter(function(x){return x.course==='L-IN';});
+  var om;
+  if(s.course==='T-IN-first') om={'T-IN':0,'T-OUT':1,'L-IN':2,'L-OUT':3};
+  else if(s.course==='L-OUT-first') om={'L-OUT':0,'L-IN':1,'T-OUT':2,'T-IN':3};
+  else if(s.course==='L-IN-first') om={'L-IN':0,'L-OUT':1,'T-OUT':2,'T-IN':3};
+  else om={'T-OUT':0,'T-IN':1,'L-OUT':2,'L-IN':3};
   f.sort(function(a,b){var ca=om[a.course]!=null?om[a.course]:9;var cb=om[b.course]!=null?om[b.course]:9;return ca!==cb?ca-cb:timeToMin(a.time)-timeToMin(b.time);});
   return f;
 }
@@ -57,17 +98,21 @@ function beep(){try{var c=new(window.AudioContext||window.webkitAudioContext)();
 var s=load();
 var p=document.createElement('div');
 p.id='plazacc-macro-panel';
-p.style.cssText='position:fixed;top:10px;right:10px;width:280px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;';
+p.style.cssText='position:fixed;top:10px;right:10px;width:300px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;';
 p.innerHTML=
-  '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v2</div>'+
+  '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v3</div>'+
   '<div style="padding:12px" id="m-body">'+
   '<div style="text-align:center;font-size:22px;font-weight:bold;color:#2d6a4f;font-family:monospace" id="m-clock">--:--:--</div>'+
   '<div style="margin:8px 0"><b>시간 범위</b><br><input type="time" id="m-from" value="'+s.timeFrom+'" style="padding:4px;font-size:14px;width:100px"> ~ <input type="time" id="m-to" value="'+s.timeTo+'" style="padding:4px;font-size:14px;width:100px"></div>'+
   '<div style="margin:8px 0"><b>코스 우선순위</b><br><select id="m-course" style="padding:4px;font-size:13px;width:100%">'+
   '<option value="T-OUT-first"'+(s.course==='T-OUT-first'?' selected':'')+'>타이거OUT 우선 (전체)</option>'+
   '<option value="T-IN-first"'+(s.course==='T-IN-first'?' selected':'')+'>타이거IN 우선 (전체)</option>'+
+  '<option value="L-OUT-first"'+(s.course==='L-OUT-first'?' selected':'')+'>라이온OUT 우선 (전체)</option>'+
+  '<option value="L-IN-first"'+(s.course==='L-IN-first'?' selected':'')+'>라이온IN 우선 (전체)</option>'+
   '<option value="T-OUT-only"'+(s.course==='T-OUT-only'?' selected':'')+'>타이거OUT만</option>'+
   '<option value="T-IN-only"'+(s.course==='T-IN-only'?' selected':'')+'>타이거IN만</option>'+
+  '<option value="L-OUT-only"'+(s.course==='L-OUT-only'?' selected':'')+'>라이온OUT만</option>'+
+  '<option value="L-IN-only"'+(s.course==='L-IN-only'?' selected':'')+'>라이온IN만</option>'+
   '</select></div>'+
   '<div style="display:flex;gap:6px;margin-top:10px">'+
   '<button id="m-scan" style="flex:1;padding:10px;background:#1565c0;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer">스캔</button>'+
@@ -75,7 +120,7 @@ p.innerHTML=
   '<div style="display:flex;gap:6px;margin-top:6px">'+
   '<button id="m-wait" style="flex:1;padding:10px;background:#2d6a4f;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer">10시 대기</button>'+
   '<button id="m-stop" style="flex:1;padding:10px;background:#757575;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer;display:none">중지</button></div>'+
-  '<div id="m-status" style="margin-top:8px;padding:8px;background:#f5f5f5;border-radius:6px;font-size:12px;min-height:40px;line-height:1.5">대기 중. 스캔 또는 10시 대기를 누르세요.</div>'+
+  '<div id="m-status" style="margin-top:8px;padding:8px;background:#f5f5f5;border-radius:6px;font-size:12px;min-height:40px;line-height:1.5;max-height:200px;overflow-y:auto">스캔을 눌러 슬롯을 확인하세요.</div>'+
   '</div>';
 document.body.appendChild(p);
 
@@ -92,9 +137,12 @@ function ss(html){document.getElementById('m-status').innerHTML=html;}
 
 document.getElementById('m-scan').onclick=function(){
   var st=gs();save(st);var slots=scanSlots();var matched=filterAndSort(slots,st);
-  var html='<b>전체 '+slots.length+'개 슬롯</b>, 조건 매칭 <b>'+matched.length+'개</b><br>';
-  matched.slice(0,8).forEach(function(x){html+='<span style="color:#2d6a4f">'+x.time+' '+cn(x.course)+'</span><br>';});
-  if(matched.length===0)html+='<span style="color:red">조건에 맞는 슬롯 없음</span>';
+  var html='<b>전체 '+slots.length+'개 예약가능</b>, 조건 매칭 <b style="color:#d32f2f">'+matched.length+'개</b><br>';
+  if(slots.length===0)html+='<span style="color:red">iframe 접근 실패 또는 시간표 없음<br>날짜를 클릭한 후 다시 시도하세요.</span>';
+  matched.slice(0,10).forEach(function(x){
+    html+='<span style="color:'+(x.course.indexOf('T-')===0?'#2d6a4f':'#1565c0')+'">'+x.time+' '+cn(x.course)+'</span><br>';
+  });
+  if(matched.length>10)html+='... 외 '+(matched.length-10)+'개';
   ss(html);
 };
 
@@ -110,7 +158,7 @@ document.getElementById('m-wait').onclick=function(){
   var st=gs();save(st);
   document.getElementById('m-wait').style.display='none';
   document.getElementById('m-stop').style.display='block';
-  ss('<b style="color:#e65100">10:00 대기 중...</b><br>'+st.timeFrom+'~'+st.timeTo+' / '+st.course);
+  ss('<b style="color:#e65100">10:00 대기 중...</b><br>'+st.timeFrom+'~'+st.timeTo+' / '+cn(st.course)+'<br>10시에 자동으로 클릭합니다');
   waitTimer=setInterval(function(){
     var now=new Date();
     if(now.getHours()===10&&now.getMinutes()===0&&now.getSeconds()<=3){
