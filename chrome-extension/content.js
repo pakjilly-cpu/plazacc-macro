@@ -1,4 +1,4 @@
-// 플라자CC 매크로 v9 - 모든 날짜순회를 localStorage 기반으로 통합
+// 플라자CC 매크로 v10 - 모든 날짜순회를 localStorage 기반으로 통합
 (function(){
 'use strict';
 
@@ -157,13 +157,7 @@ function initTimeTable(){
       return;
     }
 
-    // 결과 저장 (스캔 모드)
     var results=job.results||[];
-    if(job.mode==='scan'&&matched.length>0){
-      var items=[];
-      matched.slice(0,5).forEach(function(x){items.push({time:x.time,course:x.course,date:x.date});});
-      results.push({dateLabel:dateLabel,slots:items});
-    }
 
     var dates=job.dates||[];
     var idx=(job.idx||0)+1;
@@ -175,27 +169,13 @@ function initTimeTable(){
     }
 
     // 완료 체크 (스캔/바로클릭/10시자동)
-    if((job.mode==='scan'||job.mode==='goClick'||job.mode==='auto10')&&idx>=dates.length){
+    if(job.mode==='auto10'&&idx>=dates.length){
       clearJob();setCmd({});
       setTimeout(function(){
         buildUI(st);
         var el=document.getElementById('m-status');
         if(!el)return;
-        if(job.mode==='scan'){
-          var html='<b style="color:#1565c0">스캔 완료</b> ('+dates.length+'개 날짜)<br>';
-          var total=0;
-          results.forEach(function(r){
-            html+='<div style="margin:4px 0;padding:4px;background:#e8f5e9;border-radius:4px">';
-            html+='<b>'+r.dateLabel+'</b> - '+r.slots.length+'개<br>';
-            r.slots.forEach(function(s2){html+='<span style="color:'+(s2.course.indexOf('T-')===0?'#2d6a4f':'#1565c0')+'">  '+s2.time+' '+cn(s2.course)+'</span><br>';});
-            html+='</div>';total+=r.slots.length;
-          });
-          if(total===0)html+='<span style="color:red">조건에 맞는 슬롯이 없습니다.</span>';
-          else html+='<b>총 '+total+'개 발견</b>';
-          el.innerHTML=html;
-        }else{
-          el.innerHTML='<span style="color:red">모든 목표 날짜에서 매칭 슬롯을 찾지 못했습니다.</span>';
-        }
+        el.innerHTML='<span style="color:red">모든 목표 날짜에서 매칭 슬롯을 찾지 못했습니다.<br>다시 시도하려면 10시 자동예약을 눌러주세요.</span>';
       },300);
       return;
     }
@@ -206,13 +186,13 @@ function initTimeTable(){
     // UI 표시 (스캔 진행 중)
     setTimeout(function(){
       buildUI(st);
-      var modeLabel={'scan':'스캔','goClick':'바로클릭','auto10':'10시 자동예약','cancel':'취소표 감시'}[job.mode]||job.mode;
-      var color={'scan':'#1565c0','goClick':'#d32f2f','auto10':'#e65100','cancel':'#6a1b9a'}[job.mode]||'#333';
+      var modeLabel={'auto10':'10시 자동예약','cancel':'취소표 감시'}[job.mode]||job.mode;
+      var color={'auto10':'#e65100','cancel':'#6a1b9a'}[job.mode]||'#333';
       var el=document.getElementById('m-status');
       if(el)el.innerHTML='<b style="color:'+color+'">'+modeLabel+'</b> '+dates[idx]+'일 확인 중 ('+(idx+1)+'/'+dates.length+')';
       var stopEl=document.getElementById('m-stop');
       if(stopEl)stopEl.style.display='block';
-      ['m-scan','m-go','m-auto10','m-cancel'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
+      ['m-auto10','m-cancel'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
     },300);
     return;
   }
@@ -227,7 +207,7 @@ function initTimeTable(){
     p.id='plazacc-macro-panel';
     p.style.cssText='position:fixed;top:5px;right:5px;width:320px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;max-height:95vh;overflow-y:auto;';
     p.innerHTML=
-      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v9</div>'+
+      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v10</div>'+
       '<div style="padding:12px">'+
       '<div style="text-align:center;font-size:22px;font-weight:bold;color:#2d6a4f;font-family:monospace" id="m-clock">--:--:--</div>'+
       '<div style="margin:8px 0;padding:8px;background:#fff3e0;border-radius:6px;border:1px solid #ffcc02">'+
@@ -249,9 +229,6 @@ function initTimeTable(){
       '<option value="L-IN-only"'+(s.course==='L-IN-only'?' selected':'')+'>라이온IN만</option>'+
       '</select></div>'+
       '<div style="display:flex;gap:6px;margin-top:10px">'+
-      '<button id="m-scan" style="flex:1;padding:8px;background:#1565c0;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer">스캔 (전체날짜)</button>'+
-      '<button id="m-go" style="flex:1;padding:8px;background:#d32f2f;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer">바로 클릭!</button></div>'+
-      '<div style="display:flex;gap:6px;margin-top:6px">'+
       '<button id="m-auto10" style="flex:1;padding:12px;background:#e65100;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer">10시 자동예약</button>'+
       '<button id="m-cancel" style="flex:1;padding:12px;background:#6a1b9a;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer">취소표 감시</button></div>'+
       '<button id="m-stop" style="width:100%;padding:12px;background:#757575;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer;display:none;margin-top:6px">중지</button>'+
@@ -270,64 +247,27 @@ function initTimeTable(){
     function gs(){return{timeFrom:document.getElementById('m-from').value,timeTo:document.getElementById('m-to').value,course:document.getElementById('m-course').value,targetDates:document.getElementById('m-dates').value,autoRefresh:document.getElementById('m-autorefresh').checked};}
     function ss(html){document.getElementById('m-status').innerHTML=html;}
     function showBtns(show){
-      ['m-scan','m-go','m-auto10','m-cancel'].forEach(function(id){document.getElementById(id).style.display=show?'':'none';});
+      ['m-auto10','m-cancel'].forEach(function(id){document.getElementById(id).style.display=show?'':'none';});
       document.getElementById('m-stop').style.display=show?'none':'block';
     }
 
-    // 날짜 목록 가져오기 (달력에 요청)
-    function getDates(cb){
-      setCmd({getDates:true});
-      setTimeout(function(){
-        var cmd=getCmd();
-        var dates=(cmd.dates||'').split(',').filter(function(x){return x!==''});
-        cb(dates);
-      },600);
-    }
-
     // 작업 시작 공통
-    function startJob(mode,dates,autoClick,st){
+    function startJob(mode,dates,st){
       save(st);
-      setJob({active:true,mode:mode,dates:dates,idx:0,results:[],autoClick:autoClick,settings:st,autoRefresh:st.autoRefresh,auto10started:false});
-      // 첫 번째 날짜 클릭
+      setJob({active:true,mode:mode,dates:dates,idx:0,results:[],autoClick:true,settings:st,autoRefresh:st.autoRefresh,auto10started:false});
       if(mode==='auto10'){
-        // 10시 자동: 달력이 10시에 알아서 새로고침+클릭
         var now=new Date();
-        if(now.getHours()>=10){
-          // 이미 10시 지남: 바로 첫 날짜 클릭
-          setCmd({click:dates[0]});
-        }
+        if(now.getHours()>=10){setCmd({click:dates[0]});}
         ss('<b style="color:#e65100">10시 자동예약'+(now.getHours()>=10?' (즉시 시작)':' 대기 중')+'</b><br>'+
            dates.join(',')+'일 / '+String(st.timeFrom).padStart(2,'0')+'시~'+String(st.timeTo).padStart(2,'0')+'시 / '+cn(st.course)+'<br>'+
            (now.getHours()<10?'10시에 자동으로 시작됩니다.':''));
       }else{
         setCmd({click:dates[0]});
-        var modeLabel={'scan':'스캔','goClick':'바로 클릭','cancel':'취소표 감시'}[mode];
-        var color={'scan':'#1565c0','goClick':'#d32f2f','cancel':'#6a1b9a'}[mode];
-        ss('<b style="color:'+color+'">'+modeLabel+' 시작</b><br>'+dates[0]+'일 확인 중 (1/'+dates.length+')');
+        ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중 (1/'+dates.length+')');
       }
       showBtns(false);
-      p.style.borderColor={'scan':'#1565c0','goClick':'#d32f2f','auto10':'#e65100','cancel':'#6a1b9a'}[mode]||'#2d6a4f';
+      p.style.borderColor=mode==='auto10'?'#e65100':'#6a1b9a';
     }
-
-    // 스캔 (전체 날짜)
-    document.getElementById('m-scan').onclick=function(){
-      var st=gs();
-      ss('<b>날짜 목록 확인 중...</b>');
-      getDates(function(dates){
-        if(dates.length===0){ss('<span style="color:red">클릭 가능한 날짜가 없습니다.</span>');return;}
-        startJob('scan',dates,false,st);
-      });
-    };
-
-    // 바로 클릭 (전체 날짜)
-    document.getElementById('m-go').onclick=function(){
-      var st=gs();
-      ss('<b>날짜 목록 확인 중...</b>');
-      getDates(function(dates){
-        if(dates.length===0){ss('<span style="color:red">클릭 가능한 날짜가 없습니다.</span>');return;}
-        startJob('goClick',dates,true,st);
-      });
-    };
 
     // 10시 자동예약 (목표 날짜)
     document.getElementById('m-auto10').onclick=function(){
@@ -354,6 +294,6 @@ function initTimeTable(){
     };
   }
 
-  console.log('[매크로 v9] 슬롯 '+scanSlots().length+'개');
+  console.log('[매크로 v10] 슬롯 '+scanSlots().length+'개');
 }
 })();
