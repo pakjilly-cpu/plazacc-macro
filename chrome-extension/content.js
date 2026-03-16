@@ -1,6 +1,17 @@
-// 플라자CC 매크로 - 북마클릿 버전 v3 (iframe 지원)
+// 플라자CC 매크로 - 크롬 확장 v3
 (function(){
-if(document.getElementById('plazacc-macro-panel')){alert('매크로가 이미 실행 중입니다!');return;}
+// confirmPopup 링크가 있는 시간표 iframe에서만 실행
+if(!document.querySelector('a[href*="confirmPopup"]')){
+  // 아직 로딩 안 됐을 수 있으니 1초 후 한번 더 확인
+  setTimeout(function(){
+    if(!document.querySelector('a[href*="confirmPopup"]'))return;
+    init();
+  },1500);
+  return;
+}
+init();
+function init(){
+if(document.getElementById('plazacc-macro-panel'))return;
 
 function load(){
   try{var d=JSON.parse(localStorage.getItem('plazacc-macro-settings'));if(d)return d;}catch(e){}
@@ -180,4 +191,5 @@ document.getElementById('m-stop').onclick=function(){
   document.getElementById('m-wait').style.display='block';document.getElementById('m-stop').style.display='none';ss('중지됨');
 };
 
+} // end init()
 })();
