@@ -6,7 +6,7 @@ var old=document.getElementById('plazacc-macro-panel');if(old)old.remove();
 
 // 설정
 var SETTINGS_KEY='plazacc_v2';
-var defaults={timeFrom:'10:00',timeTo:'13:00',course:'T-OUT-first'};
+var defaults={timeFrom:'06:00',timeTo:'17:00',course:'T-OUT-first'};
 function load(){try{return Object.assign({},defaults,JSON.parse(localStorage.getItem(SETTINGS_KEY)))}catch(e){return Object.assign({},defaults)}}
 function save(s){localStorage.setItem(SETTINGS_KEY,JSON.stringify(s))}
 
@@ -26,27 +26,30 @@ function scanSlots(){
 }
 
 function timeToMin(t){var p=t.split(':');return parseInt(p[0])*60+parseInt(p[1])}
+function courseName(c){return{'T-OUT':'타이거OUT','T-IN':'타이거IN','L-OUT':'라이온OUT','L-IN':'라이온IN'}[c]||c}
 
 function filterAndSort(slots,s){
   var from=timeToMin(s.timeFrom),to=timeToMin(s.timeTo);
   var filtered=slots.filter(function(x){var t=timeToMin(x.time);return t>=from&&t<=to});
   // 코스 우선순위 정렬
   var pri=s.course;
-  if(pri==='T-OUT-first'){
-    filtered.sort(function(a,b){
-      var order={'T-OUT':0,'T-IN':1,'L-OUT':2,'L-IN':3};
-      return (order[a.course]||9)-(order[b.course]||9);
-    });
-  }else if(pri==='T-IN-first'){
-    filtered.sort(function(a,b){
-      var order={'T-IN':0,'T-OUT':1,'L-IN':2,'L-OUT':3};
-      return (order[a.course]||9)-(order[b.course]||9);
-    });
-  }else if(pri==='T-OUT-only'){
+  if(pri==='T-OUT-only'){
     filtered=filtered.filter(function(x){return x.course==='T-OUT'});
   }else if(pri==='T-IN-only'){
     filtered=filtered.filter(function(x){return x.course==='T-IN'});
   }
+  var orderMap;
+  if(pri==='T-IN-first'){
+    orderMap={'T-IN':0,'T-OUT':1,'L-IN':2,'L-OUT':3};
+  }else{
+    orderMap={'T-OUT':0,'T-IN':1,'L-OUT':2,'L-IN':3};
+  }
+  filtered.sort(function(a,b){
+    var ca=(orderMap[a.course]!=null?orderMap[a.course]:9);
+    var cb=(orderMap[b.course]!=null?orderMap[b.course]:9);
+    if(ca!==cb)return ca-cb;
+    return timeToMin(a.time)-timeToMin(b.time);
+  });
   return filtered;
 }
 
@@ -107,7 +110,7 @@ document.getElementById('m-scan').onclick=function(){
   var matched=filterAndSort(slots,s);
   var html='<b>전체 '+slots.length+'개 슬롯</b>, 조건 매칭 <b>'+matched.length+'개</b><br>';
   matched.slice(0,8).forEach(function(x){
-    html+='<span style="color:'+(x.course.indexOf('T-')===0?'#2d6a4f':'#666')+'">'+x.time+' '+x.course+'</span><br>';
+    html+='<span style="color:'+(x.course==='T-IN'||x.course==='T-OUT'?'#2d6a4f':'#666')+'">'+x.time+' '+courseName(x.course)+'</span><br>';
   });
   if(matched.length>8)html+='... 외 '+(matched.length-8)+'개';
   if(matched.length===0)html+='<span style="color:red">조건에 맞는 슬롯 없음</span>';
@@ -124,7 +127,7 @@ document.getElementById('m-go').onclick=function(){
     return;
   }
   var target=matched[0];
-  setStatus('<b style="color:#2d6a4f">클릭! '+target.time+' '+target.course+'</b><br>팝업을 확인하세요!');
+  setStatus('<b style="color:#2d6a4f">클릭! '+target.time+' '+courseName(target.course)+'</b><br>팝업을 확인하세요!');
   target.element.click();
   try{var ac=window.AudioContext||window.webkitAudioContext;var c=new ac();var o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;o.start();o.stop(c.currentTime+0.3)}catch(e){}
 };
@@ -147,7 +150,7 @@ document.getElementById('m-wait').onclick=function(){
         var matched=filterAndSort(slots,getSettings());
         if(matched.length>0){
           var target=matched[0];
-          setStatus('<b style="color:#2d6a4f">성공! '+target.time+' '+target.course+'</b><br>팝업을 확인하세요!');
+          setStatus('<b style="color:#2d6a4f">성공! '+target.time+' '+courseName(target.course)+'</b><br>팝업을 확인하세요!');
           target.element.click();
           try{var ac=window.AudioContext||window.webkitAudioContext;var c=new ac();[0,0.3,0.6].forEach(function(d){var o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;o.start(c.currentTime+d);o.stop(c.currentTime+d+0.15)})}catch(e){}
           document.getElementById('m-wait').style.display='block';
