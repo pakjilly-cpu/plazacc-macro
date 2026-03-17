@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>플라자CC 매크로 사용 가이드</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
+    font-size: 19px;
+    line-height: 1.8;
+    color: #333;
+    background: #f0f7f0;
+    padding: 20px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  h1 {
+    background: #2d6a4f;
+    color: #fff;
+    padding: 28px 30px;
+    border-radius: 16px;
+    text-align: center;
+    font-size: 32px;
+    margin-bottom: 30px;
+    line-height: 1.4;
+  }
+  h1 small {
+    display: block;
+    font-size: 18px;
+    font-weight: normal;
+    opacity: 0.85;
+    margin-top: 6px;
+  }
+  h2 {
+    background: #2d6a4f;
+    color: #fff;
+    padding: 16px 24px;
+    border-radius: 12px;
+    font-size: 26px;
+    margin: 40px 0 20px 0;
+  }
+  h2 .num {
+    display: inline-block;
+    background: #fff;
+    color: #2d6a4f;
+    width: 40px;
+    height: 40px;
+    line-height: 40px;
+    text-align: center;
+    border-radius: 50%;
+    font-size: 22px;
+    font-weight: bold;
+    margin-right: 12px;
+    vertical-align: middle;
+  }
+  h3 {
+    color: #2d6a4f;
+    font-size: 22px;
+    margin: 24px 0 12px 0;
+    padding-left: 12px;
+    border-left: 5px solid #2d6a4f;
+  }
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    border: 1px solid #d0e8d0;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 18px;
+    padding: 16px;
+    background: #f8fdf8;
+    border-radius: 10px;
+    border-left: 5px solid #2d6a4f;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    background: #2d6a4f;
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: bold;
+  }
+  .step-text {
+    flex: 1;
+    font-size: 19px;
+  }
+  .step-text strong {
+    color: #2d6a4f;
+    font-size: 20px;
+  }
+  .step-text .sub {
+    color: #666;
+    font-size: 16px;
+    margin-top: 4px;
+  }
+  .highlight-box {
+    background: #fff3e0;
+    border: 2px solid #ff9800;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin: 16px 0;
+    font-size: 19px;
+  }
+  .highlight-box.green {
+    background: #e8f5e9;
+    border-color: #4caf50;
+  }
+  .highlight-box.red {
+    background: #fce4ec;
+    border-color: #e53935;
+  }
+  .highlight-box.purple {
+    background: #f3e5f5;
+    border-color: #8e24aa;
+  }
+  .btn-desc {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 16px;
+    background: #fff;
+    border-radius: 10px;
+    border: 2px solid #ddd;
+  }
+  .btn-mock {
+    flex-shrink: 0;
+    padding: 12px 20px;
+    color: #fff;
+    border-radius: 8px;
+    font-size: 17px;
+    font-weight: bold;
+    text-align: center;
+    min-width: 100px;
+  }
+  .btn-mock.blue { background: #1565c0; }
+  .btn-mock.orange { background: #e65100; }
+  .btn-mock.purple { background: #6a1b9a; }
+  .btn-mock.gray { background: #757575; }
+  .btn-explain {
+    font-size: 19px;
+    line-height: 1.6;
+  }
+
+  /* 흐름도 */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    margin: 24px 0;
+  }
+  .flow-step {
+    width: 100%;
+    max-width: 500px;
+    padding: 16px 22px;
+    border-radius: 12px;
+    text-align: center;
+    font-size: 20px;
+    font-weight: bold;
+    color: #fff;
+    position: relative;
+  }
+  .flow-step.green { background: #2d6a4f; }
+  .flow-step.orange { background: #e65100; }
+  .flow-step.purple { background: #6a1b9a; }
+  .flow-step.blue { background: #1565c0; }
+  .flow-step.red { background: #c62828; }
+  .flow-step.gray { background: #616161; }
+  .flow-step small {
+    display: block;
+    font-weight: normal;
+    font-size: 16px;
+    opacity: 0.9;
+    margin-top: 4px;
+  }
+  .flow-arrow {
+    font-size: 32px;
+    color: #2d6a4f;
+    line-height: 1;
+    padding: 4px 0;
+  }
+  .flow-you {
+    width: 100%;
+    max-width: 500px;
+    padding: 14px 22px;
+    border-radius: 12px;
+    text-align: center;
+    font-size: 20px;
+    font-weight: bold;
+    background: #fff;
+    border: 3px dashed #e65100;
+    color: #e65100;
+  }
+  .flow-auto {
+    width: 100%;
+    max-width: 520px;
+    padding: 4px;
+    border: 3px solid #2d6a4f;
+    border-radius: 16px;
+    background: #f0f7f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .flow-auto-label {
+    font-size: 15px;
+    color: #2d6a4f;
+    font-weight: bold;
+    padding: 8px 0 2px 0;
+  }
+
+  /* 코스 테이블 */
+  .course-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 19px;
+  }
+  .course-table th {
+    background: #2d6a4f;
+    color: #fff;
+    padding: 12px;
+    text-align: center;
+  }
+  .course-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #ddd;
+    text-align: center;
+  }
+  .course-table tr:nth-child(even) { background: #f5f5f5; }
+  .course-table .rank1 { background: #e8f5e9; font-weight: bold; }
+
+  /* 패널 모형 */
+  .panel-mock {
+    border: 3px solid #2d6a4f;
+    border-radius: 12px;
+    max-width: 360px;
+    margin: 20px auto;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  }
+  .panel-mock-header {
+    background: #2d6a4f;
+    color: #fff;
+    padding: 10px 14px;
+    font-size: 17px;
+    font-weight: bold;
+  }
+  .panel-mock-body {
+    padding: 14px;
+    background: #fff;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .panel-mock-body .mock-clock {
+    text-align: center;
+    font-size: 24px;
+    font-weight: bold;
+    color: #2d6a4f;
+    font-family: monospace;
+    margin-bottom: 8px;
+  }
+  .panel-mock-body .mock-input {
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    width: 100%;
+    font-size: 15px;
+    margin: 4px 0;
+    background: #fffde7;
+  }
+  .panel-mock-body .mock-btns {
+    display: flex;
+    gap: 4px;
+    margin-top: 8px;
+  }
+  .panel-mock-body .mock-btn {
+    flex: 1;
+    padding: 8px 4px;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: bold;
+    text-align: center;
+  }
+  .panel-mock-body .mock-label {
+    font-size: 13px;
+    font-weight: bold;
+    margin-top: 8px;
+  }
+  .panel-mock-body .mock-course {
+    font-size: 12px;
+    background: #e8f5e9;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-top: 4px;
+  }
+  .panel-mock-body .mock-status {
+    margin-top: 8px;
+    padding: 8px;
+    background: #f5f5f5;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #666;
+  }
+  .panel-callout {
+    position: relative;
+    margin: 8px 0 8px 0;
+  }
+  .panel-callout .arrow-line {
+    position: absolute;
+    left: -30px;
+    top: 50%;
+    width: 24px;
+    height: 2px;
+    background: #e65100;
+  }
+
+  .warn-box {
+    background: #fff8e1;
+    border: 3px solid #f57f17;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 16px 0;
+    font-size: 20px;
+  }
+  .warn-box li {
+    margin-bottom: 10px;
+    padding-left: 6px;
+  }
+
+  @media (max-width: 600px) {
+    body { padding: 12px; font-size: 17px; }
+    h1 { font-size: 24px; padding: 20px; }
+    h2 { font-size: 20px; padding: 12px 16px; }
+    .step { flex-direction: column; gap: 8px; }
+    .flow-step, .flow-you { font-size: 17px; }
+    .panel-mock { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<h1>
+  플라자CC 골프 예약 매크로
+  <small>사용 가이드 (부모님용)</small>
+</h1>
+
+<div class="card" style="background:#e8f5e9; border-color:#2d6a4f; border-width:2px;">
+  <p style="font-size:20px; text-align:center;">
+    이 매크로를 사용하면 <strong>월요일 10시 예약 오픈</strong>이나<br>
+    <strong>취소표</strong>를 자동으로 잡아줍니다.<br><br>
+    컴퓨터 앞에서 눈을 부릅뜨고 기다릴 필요 없이,<br>
+    <strong>버튼 한 번이면</strong> 매크로가 알아서 합니다.
+  </p>
+</div>
+
+<!-- ========== 1. 설치 ========== -->
+<h2><span class="num">1</span> 설치 방법</h2>
+
+<div class="card">
+  <p style="margin-bottom:16px; color:#666;">처음 한 번만 하면 됩니다. 약 2분 소요.</p>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-text">
+      <strong>크롬(Chrome) 브라우저를 엽니다</strong>
+      <div class="sub">인터넷 아이콘 중에서 동그란 빨강/노랑/초록/파랑 아이콘입니다.<br>반드시 크롬이어야 합니다. 엣지나 네이버 웨일은 안 됩니다.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-text">
+      <strong>주소창에 아래 주소를 입력하고 엔터</strong>
+      <div style="background:#fffde7; padding:10px 16px; border-radius:8px; margin-top:8px; font-size:22px; font-family:monospace; color:#333; border:2px solid #fbc02d; letter-spacing:1px;">
+        chrome://extensions
+      </div>
+      <div class="sub">화면 맨 위에 있는 긴 주소창(네이버 검색하는 곳)에 그대로 적으시면 됩니다.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-text">
+      <strong>오른쪽 위에 "개발자 모드" 스위치를 켭니다</strong>
+      <div style="margin-top:8px; display:inline-block; background:#eee; border:2px solid #999; border-radius:20px; padding:4px 16px; font-size:16px;">
+        <span style="color:#999;">개발자 모드</span>
+        <span style="display:inline-block; width:36px; height:20px; background:#2d6a4f; border-radius:10px; vertical-align:middle; margin-left:8px; position:relative;">
+          <span style="display:inline-block; width:16px; height:16px; background:#fff; border-radius:50%; position:absolute; right:2px; top:2px;"></span>
+        </span>
+      </div>
+      <div class="sub">회색이면 꺼진 것, 파란색(또는 초록색)이면 켜진 것입니다.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-text">
+      <strong>"압축해제된 확장 프로그램을 로드합니다" 클릭</strong>
+      <div class="sub">화면 왼쪽 위에 버튼 3개가 나타납니다. 그중 가장 왼쪽 버튼을 누르세요.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-text">
+      <strong>폴더 선택 창이 뜨면 아래 폴더를 찾아 선택</strong>
+      <div style="background:#fffde7; padding:10px 16px; border-radius:8px; margin-top:8px; font-size:18px; font-family:monospace; color:#333; border:2px solid #fbc02d;">
+        chrome-extension 폴더
+      </div>
+      <div class="sub">
+        승환이가 바탕화면에 바로가기를 만들어 드릴 겁니다.<br>
+        "폴더 선택" 버튼을 누르면 끝!
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">6</div>
+    <div class="step-text">
+      <strong>설치 완료!</strong>
+      <div class="sub">
+        확장 프로그램 목록에 <strong>"플라자CC 예약 매크로"</strong>가 보이면 성공입니다.<br>
+        이제 플라자CC 사이트에 접속하면 매크로가 자동으로 나타납니다.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 2. 매크로 화면 설명 ========== -->
+<h2><span class="num">2</span> 매크로 화면 설명</h2>
+
+<div class="card">
+  <p style="margin-bottom:16px;">플라자CC 예약 페이지에 들어가면 <strong>화면 오른쪽 위</strong>에 아래와 같은 작은 창이 뜹니다.</p>
+
+  <!-- 패널 모형 -->
+  <div class="panel-mock">
+    <div class="panel-mock-header">플라자CC 매크로 v12</div>
+    <div class="panel-mock-body">
+      <div class="mock-clock">09:55:32</div>
+      <div style="background:#fff3e0; border:1px solid #ffcc02; border-radius:6px; padding:8px; margin-bottom:8px;">
+        <div class="mock-label">목표 날짜</div>
+        <div class="mock-input" style="background:#fffde7;">13,14,15</div>
+        <div style="font-size:12px; margin-top:4px;">
+          <span style="display:inline-block; width:14px; height:14px; border:1px solid #999; border-radius:3px; vertical-align:middle; background:#2d6a4f; margin-right:4px;"></span>
+          10시 달력 자동 새로고침
+        </div>
+      </div>
+      <div class="mock-label">시간 범위</div>
+      <div style="font-size:14px; margin:4px 0 8px 0;">
+        <span style="border:1px solid #ccc; padding:3px 8px; border-radius:4px;">10시</span>
+        ~
+        <span style="border:1px solid #ccc; padding:3px 8px; border-radius:4px;">14시</span>
+      </div>
+      <div class="mock-course">코스 우선순위 (고정): 타이거OUT → IN → 라이온OUT → IN</div>
+      <div class="mock-btns">
+        <div class="mock-btn" style="background:#1565c0;">스캔</div>
+        <div class="mock-btn" style="background:#e65100;">10시자동</div>
+        <div class="mock-btn" style="background:#6a1b9a;">취소감시</div>
+      </div>
+      <div class="mock-status">설정 후 버튼을 누르세요.</div>
+    </div>
+  </div>
+
+  <div style="margin-top:24px;">
+    <h3>각 부분 설명</h3>
+
+    <div class="highlight-box green" style="margin-bottom:12px;">
+      <strong>시계</strong> - 현재 시각이 실시간으로 표시됩니다. 10시 정각 확인할 때 유용합니다.
+    </div>
+
+    <div class="highlight-box" style="margin-bottom:12px;">
+      <strong>목표 날짜</strong> - 예약하고 싶은 날짜의 "일(日)"만 입력합니다.<br>
+      예: 4월 13일, 14일, 15일이면 &rarr; <strong>13,14,15</strong><br>
+      여러 날짜를 쉼표(,)로 구분합니다. 앞에서부터 우선 시도합니다.
+    </div>
+
+    <div class="highlight-box green" style="margin-bottom:12px;">
+      <strong>시간 범위</strong> - 원하는 시간대를 설정합니다.<br>
+      예: 10시~14시로 하면 오전 10시부터 오후 2시 사이 시간만 잡아줍니다.
+    </div>
+
+    <div class="highlight-box green" style="margin-bottom:12px;">
+      <strong>코스 우선순위</strong> (자동 고정)<br>
+      같은 시간에 여러 코스가 비어있으면 아래 순서로 잡아줍니다:
+    </div>
+
+    <table class="course-table">
+      <tr><th>순위</th><th>코스</th><th>설명</th></tr>
+      <tr class="rank1"><td>1순위</td><td>타이거 OUT</td><td>가장 먼저 시도</td></tr>
+      <tr><td>2순위</td><td>타이거 IN</td><td></td></tr>
+      <tr><td>3순위</td><td>라이온 OUT</td><td></td></tr>
+      <tr><td>4순위</td><td>라이온 IN</td><td></td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ========== 3. 버튼 설명 ========== -->
+<h2><span class="num">3</span> 버튼 설명</h2>
+
+<div class="card">
+
+  <div class="btn-desc">
+    <div class="btn-mock blue">스캔</div>
+    <div class="btn-explain">
+      <strong>확인만 합니다 (예약 안 함)</strong><br>
+      지금 화면에 보이는 시간표에서 조건에 맞는 빈 자리가 있는지 확인합니다.<br>
+      테스트할 때 사용하세요.
+    </div>
+  </div>
+
+  <div class="btn-desc" style="border-color:#e65100;">
+    <div class="btn-mock orange">10시자동</div>
+    <div class="btn-explain">
+      <strong>월요일 10시 오픈용</strong><br>
+      10시 정각에 자동으로 새로고침하고, 빈 자리를 찾아 예약 버튼을 눌러줍니다.<br>
+      <strong>한 번만 시도</strong>합니다.
+    </div>
+  </div>
+
+  <div class="btn-desc" style="border-color:#6a1b9a;">
+    <div class="btn-mock purple">취소감시</div>
+    <div class="btn-explain">
+      <strong>취소표 잡기용</strong><br>
+      이미 마감된 날짜에서 누군가 취소하면 바로 잡아줍니다.<br>
+      <strong>3초마다 계속 확인</strong>합니다. 빈 자리 나올 때까지 무한 반복!
+    </div>
+  </div>
+
+  <div class="btn-desc" style="border-color:#757575;">
+    <div class="btn-mock gray">중지</div>
+    <div class="btn-explain">
+      <strong>작업을 멈춥니다</strong><br>
+      10시자동이나 취소감시가 실행 중일 때 나타납니다.<br>
+      누르면 모든 자동 작업이 즉시 멈춥니다.
+    </div>
+  </div>
+</div>
+
+<!-- ========== 4. 10시 자동예약 ========== -->
+<h2><span class="num">4</span> 10시 자동예약 사용법</h2>
+
+<div class="card">
+  <div class="highlight-box" style="text-align:center; font-size:20px;">
+    매주 <strong>월요일 10시</strong>에 그 다음주 예약이 열립니다.<br>
+    매크로가 10시 정각에 자동으로 빈 자리를 잡아줍니다!
+  </div>
+
+  <!-- 흐름도 -->
+  <div class="flow">
+    <div class="flow-you">
+      내가 할 일 1<br>
+      <small style="font-weight:normal; font-size:17px;">월요일 <strong>9시 55분</strong>에 플라자CC 사이트 로그인</small>
+    </div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-you">
+      내가 할 일 2<br>
+      <small style="font-weight:normal; font-size:17px;"><strong>목표 날짜</strong>와 <strong>시간 범위</strong> 설정</small>
+    </div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-you" style="border-color:#e65100;">
+      내가 할 일 3<br>
+      <small style="font-weight:normal; font-size:17px;"><strong style="color:#e65100;">10시자동</strong> 버튼 클릭!</small>
+    </div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-auto">
+      <div class="flow-auto-label">이 아래는 매크로가 자동으로 합니다</div>
+      <div class="flow-step green" style="margin:4px 8px;">
+        10시 정각 &rarr; 달력 자동 새로고침
+      </div>
+      <div class="flow-arrow" style="color:#2d6a4f;">&darr;</div>
+      <div class="flow-step green" style="margin:4px 8px;">
+        목표 날짜 자동 클릭
+      </div>
+      <div class="flow-arrow" style="color:#2d6a4f;">&darr;</div>
+      <div class="flow-step green" style="margin:4px 8px;">
+        빈 자리 스캔 (시간 + 코스 조건)
+      </div>
+      <div class="flow-arrow" style="color:#2d6a4f;">&darr;</div>
+      <div class="flow-step green" style="margin:4px 8px;">
+        조건에 맞는 자리 발견!<br>
+        <small>예약 버튼 자동 클릭 + 알림음</small>
+      </div>
+      <div style="padding:4px;"></div>
+    </div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-step red">
+      팝업 창이 뜹니다!<br>
+      <small>여기서 보안문자 입력하고 "확인" 누르면 끝!</small>
+    </div>
+  </div>
+
+  <div class="highlight-box red">
+    <strong>중요!</strong> 보안문자(그림 속 숫자)를 입력하는 것은 직접 하셔야 합니다.<br>
+    팝업 창이 뜨면 그림에 보이는 숫자를 입력하고 "확인"을 누르세요.
+  </div>
+
+  <h3>상세 순서</h3>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-text">
+      <strong>월요일 9시 55분</strong>에 플라자CC 예약 사이트에 로그인합니다.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-text">
+      예약 화면(시간표가 보이는 화면)까지 들어갑니다.<br>
+      오른쪽 위에 매크로 창이 보이는지 확인합니다.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-text">
+      <strong>목표 날짜</strong>에 예약하려는 날짜를 입력합니다.<br>
+      예: 다음주 토요일이 15일이면 &rarr; <strong>15</strong><br>
+      토, 일 둘 다 괜찮으면 &rarr; <strong>15,16</strong>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-text">
+      <strong>시간 범위</strong>를 설정합니다.<br>
+      보통 <strong>10시~14시</strong>가 적당합니다.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-text">
+      <strong style="color:#e65100;">"10시자동"</strong> 버튼을 누릅니다.<br>
+      화면에 "10시 자동예약 대기 중"이라고 나옵니다.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">6</div>
+    <div class="step-text">
+      <strong>가만히 기다립니다.</strong> 10시가 되면 자동으로 시작됩니다.<br>
+      <span style="color:red;">다른 탭이나 다른 프로그램으로 가지 마세요!</span>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">7</div>
+    <div class="step-text">
+      <strong>삐삐삐 소리가 나고 팝업이 뜨면</strong><br>
+      보안문자 입력 &rarr; "확인" 클릭 &rarr; <strong>예약 완료!</strong>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 5. 취소표 감시 ========== -->
+<h2><span class="num">5</span> 취소표 감시 사용법</h2>
+
+<div class="card">
+  <div class="highlight-box purple" style="text-align:center; font-size:20px;">
+    이미 마감된 날짜라도 누군가 예약을 취소하면<br>
+    매크로가 <strong>3초마다 확인</strong>해서 바로 잡아줍니다!<br>
+    <strong>집안일 하다가 오셔도 됩니다.</strong>
+  </div>
+
+  <!-- 흐름도 -->
+  <div class="flow">
+    <div class="flow-you">
+      내가 할 일 1<br>
+      <small style="font-weight:normal; font-size:17px;">플라자CC 사이트 로그인 + 예약 화면 진입</small>
+    </div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-you">
+      내가 할 일 2<br>
+      <small style="font-weight:normal; font-size:17px;"><strong>목표 날짜</strong>와 <strong>시간 범위</strong> 설정</small>
+    </div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-you" style="border-color:#6a1b9a; color:#6a1b9a;">
+      내가 할 일 3<br>
+      <small style="font-weight:normal; font-size:17px;"><strong style="color:#6a1b9a;">취소감시</strong> 버튼 클릭!</small>
+    </div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-auto" style="border-color:#6a1b9a; background:#faf0ff;">
+      <div class="flow-auto-label" style="color:#6a1b9a;">매크로가 알아서 합니다 (무한 반복)</div>
+      <div class="flow-step purple" style="margin:4px 8px;">
+        목표 날짜 시간표 확인
+      </div>
+      <div class="flow-arrow" style="color:#6a1b9a;">&darr;</div>
+      <div class="flow-step gray" style="margin:4px 8px;">
+        빈 자리 없으면?<br>
+        <small>3초 기다렸다가 다시 확인 (무한 반복)</small>
+      </div>
+      <div class="flow-arrow" style="color:#6a1b9a;">&darr;</div>
+      <div class="flow-step purple" style="margin:4px 8px;">
+        빈 자리 발견!<br>
+        <small>예약 버튼 자동 클릭 + 알림음</small>
+      </div>
+      <div style="padding:4px;"></div>
+    </div>
+    <div class="flow-arrow">&darr;</div>
+
+    <div class="flow-step red">
+      팝업 창이 뜹니다!<br>
+      <small>보안문자 입력 &rarr; "확인" 누르면 끝!</small>
+    </div>
+  </div>
+
+  <div class="highlight-box green">
+    <strong>편하게 쓰는 법:</strong><br>
+    취소감시를 켜놓고 집안일을 하세요.<br>
+    컴퓨터에서 <strong>삐삐삐 소리</strong>가 나면 와서 보안문자만 입력하면 됩니다!<br>
+    (단, 컴퓨터 소리를 켜놓으셔야 합니다)
+  </div>
+
+  <h3>상세 순서</h3>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-text">
+      플라자CC 예약 사이트에 로그인하고 예약 화면까지 들어갑니다.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-text">
+      <strong>목표 날짜</strong>에 원하는 날짜를 입력합니다.<br>
+      예: 토요일 15일, 일요일 16일 &rarr; <strong>15,16</strong>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-text">
+      <strong>시간 범위</strong>를 설정합니다.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-text">
+      <strong style="color:#6a1b9a;">"취소감시"</strong> 버튼을 누릅니다.<br>
+      화면에 "취소표 감시 시작"이라고 나옵니다.
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-text">
+      <strong>그냥 놔두세요!</strong> 매크로가 3초마다 자동으로 확인합니다.<br>
+      화면이 저절로 계속 새로고침됩니다. 정상입니다!
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">6</div>
+    <div class="step-text">
+      <strong>삐삐삐 소리가 나면</strong> 컴퓨터 앞으로 와서<br>
+      팝업에 보안문자 입력 &rarr; "확인" &rarr; <strong>예약 완료!</strong>
+    </div>
+  </div>
+</div>
+
+<!-- ========== 6. 주의사항 ========== -->
+<h2><span class="num">6</span> 주의사항</h2>
+
+<div class="card">
+  <div class="warn-box">
+    <ol style="padding-left: 24px;">
+      <li>
+        <strong>10시자동은 9시 55분부터 대기하세요</strong><br>
+        <span style="color:#c62828;">다른 탭이나 다른 프로그램으로 가면 안 됩니다!</span><br>
+        매크로가 있는 탭을 계속 보고 있어야 합니다.
+      </li>
+      <li>
+        <strong>팝업이 뜨면 보안문자만 입력하면 됩니다</strong><br>
+        그림에 있는 숫자를 입력하고 "확인"을 누르세요.<br>
+        이것만 직접 하시면 나머지는 매크로가 다 합니다.
+      </li>
+      <li>
+        <strong>취소감시는 컴퓨터 소리를 켜두세요</strong><br>
+        빈 자리를 찾으면 삐삐삐 소리가 납니다.<br>
+        소리를 꺼두면 빈 자리를 찾아도 모를 수 있습니다.
+      </li>
+      <li>
+        <strong>"중지" 버튼을 실수로 누르지 마세요</strong><br>
+        매크로가 실행 중일 때 "중지"를 누르면 자동 작업이 멈춥니다.<br>
+        다시 시작하려면 버튼을 다시 눌러야 합니다.
+      </li>
+      <li>
+        <strong>컴퓨터가 잠자기(절전) 모드에 들어가면 안 됩니다</strong><br>
+        취소감시를 오래 켜둘 때는 컴퓨터 절전 모드를 해제하세요.
+      </li>
+      <li>
+        <strong>인터넷이 끊기면 매크로도 멈춥니다</strong><br>
+        와이파이가 잘 연결되어 있는지 확인하세요.
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- ========== 간단 요약 ========== -->
+<div style="margin-top:40px;">
+  <h2><span class="num" style="font-size:18px;">!</span> 한 줄 요약</h2>
+  <div class="card" style="background:#e8f5e9; border: 2px solid #2d6a4f;">
+    <table style="width:100%; font-size:20px; border-collapse:collapse;">
+      <tr style="border-bottom:2px solid #c8e6c9;">
+        <td style="padding:16px; font-weight:bold; color:#e65100; width:130px; text-align:center;">10시자동</td>
+        <td style="padding:16px;">월요일 9:55 로그인 &rarr; 날짜 입력 &rarr; "10시자동" 클릭 &rarr; 기다림 &rarr; 보안문자 입력</td>
+      </tr>
+      <tr>
+        <td style="padding:16px; font-weight:bold; color:#6a1b9a; text-align:center;">취소감시</td>
+        <td style="padding:16px;">로그인 &rarr; 날짜 입력 &rarr; "취소감시" 클릭 &rarr; 집안일 &rarr; 소리나면 보안문자 입력</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<div style="text-align:center; color:#999; font-size:14px; margin-top:40px; padding:20px;">
+  플라자CC 매크로 v12 사용 가이드 | 2026년 3월
+</div>
+
+</body>
+</html>
