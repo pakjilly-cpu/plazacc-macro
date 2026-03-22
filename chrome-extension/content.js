@@ -1,13 +1,29 @@
-// 플라자CC 매크로 v13 - 서버 시간 자동 보정 + 속도 최적화
+// 플라자CC 매크로 v14 - 서버/PC 시간 비교 표시 + Date.now 오버라이드 방어
 (function(){
 'use strict';
+
+// 사이트가 Date.now를 오버라이드할 수 있으므로 원본 캡처
+var _origDateNow = Date.now.bind(Date);
+// 혹시 이미 오버라이드된 경우 대비: performance.now + 기준시점 사용
+var _timeBase = (function(){
+  var dn = Date.now();
+  // Date.now()가 숫자가 아니면 new Date().getTime()으로 폴백
+  if(typeof dn !== 'number'){ return {base: new Date().getTime(), perf: performance.now()}; }
+  return null;
+})();
+function _now(){
+  if(_timeBase) return Math.round(_timeBase.base + (performance.now() - _timeBase.perf));
+  var v = _origDateNow();
+  if(typeof v !== 'number') return new Date().getTime();
+  return v;
+}
 
 // ===== 서버 시간 동기화 =====
 var _tsOffset = 0; // 밀리초 (서버시간 - PC시간)
 var _tsSynced = false;
 
 function syncedNow(){
-  return new Date(Date.now() + _tsOffset);
+  return new Date(_now() + _tsOffset);
 }
 
 // 서버 Date 헤더로 PC 시계 오차 측정 (3회 측정, 최소 RTT 채택)
@@ -18,7 +34,7 @@ function syncedNow(){
   var seq = 0;
   function sample(){
     seq++;
-    var t0 = Date.now();
+    var t0 = _now();
     var url = window.location.href.split('#')[0]; // #none 제거
     url += (url.indexOf('?') >= 0 ? '&' : '?') + '_nocache=' + seq + '' + Math.floor(Math.random()*99999);
     var xhr = new XMLHttpRequest();
@@ -31,7 +47,7 @@ function syncedNow(){
       try{ dateStr = xhr.getResponseHeader('Date'); }catch(e){}
       if(!dateStr) return;
       handled = true;
-      var t1 = Date.now();
+      var t1 = _now();
       var serverTime = new Date(dateStr).getTime();
       var rtt = t1 - t0;
       var offset = serverTime - t0 - Math.floor(rtt / 2);
@@ -277,7 +293,7 @@ function initTimeTable(){
     p.id='plazacc-macro-panel';
     p.style.cssText='position:fixed;top:5px;right:5px;width:320px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;max-height:95vh;overflow-y:auto;';
     p.innerHTML=
-      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v13</div>'+
+      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v14</div>'+
       '<div style="padding:12px">'+
       '<div style="text-align:center;font-size:22px;font-weight:bold;color:#2d6a4f;font-family:monospace" id="m-clock">--:--:--</div>'+
       '<div style="text-align:center;font-size:11px;color:#999;margin-top:2px" id="m-sync">시간 보정 중...</div>'+
