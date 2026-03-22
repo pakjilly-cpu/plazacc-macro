@@ -1,6 +1,68 @@
-// 플라자CC 매크로 v12 - 속도 최적화 + 취소표감시 안정화
+// 플라자CC 매크로 v13 - 서버 시간 자동 보정 + 속도 최적화
 (function(){
 'use strict';
+
+// ===== 서버 시간 동기화 =====
+var _tsOffset = 0; // 밀리초 (서버시간 - PC시간)
+var _tsSynced = false;
+
+function syncedNow(){
+  return new Date(Date.now() + _tsOffset);
+}
+
+// 서버 Date 헤더로 PC 시계 오차 측정 (3회 측정, 최소 RTT 채택)
+(function syncTime(){
+  var best = null;
+  var done = 0;
+  var total = 3;
+  var seq = 0;
+  function sample(){
+    seq++;
+    var t0 = Date.now();
+    var url = window.location.href.split('#')[0]; // #none 제거
+    url += (url.indexOf('?') >= 0 ? '&' : '?') + '_nocache=' + seq + '' + Math.floor(Math.random()*99999);
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    var handled = false;
+    xhr.onreadystatechange = function(){
+      if(handled) return;
+      if(xhr.readyState < 2) return; // HEADERS_RECEIVED 이상
+      var dateStr = null;
+      try{ dateStr = xhr.getResponseHeader('Date'); }catch(e){}
+      if(!dateStr) return;
+      handled = true;
+      var t1 = Date.now();
+      var serverTime = new Date(dateStr).getTime();
+      var rtt = t1 - t0;
+      var offset = serverTime - t0 - Math.floor(rtt / 2);
+      if(!best || rtt < best.rtt){
+        best = {offset: offset, rtt: rtt};
+      }
+      try{ xhr.abort(); }catch(e){} // 본문 다운로드 중단
+      done++;
+      if(done < total){
+        setTimeout(sample, 150);
+      } else {
+        _tsOffset = best.offset;
+        _tsSynced = true;
+        console.log('[매크로] 시간보정 완료: ' + (_tsOffset>0?'+':'') + (_tsOffset/1000).toFixed(1) + '초 (RTT:' + best.rtt + 'ms)');
+      }
+    };
+    xhr.onerror = function(){
+      done++;
+      if(done < total){ setTimeout(sample, 150); }
+      else if(best){
+        _tsOffset = best.offset;
+        _tsSynced = true;
+        console.log('[매크로] 시간보정 완료(일부): ' + (_tsOffset>0?'+':'') + (_tsOffset/1000).toFixed(1) + '초');
+      } else {
+        console.log('[매크로] 시간보정 실패, PC 시간 사용');
+      }
+    };
+    xhr.send();
+  }
+  sample();
+})();
 
 // 페이지 감지: 100ms 간격 폴링
 (function detectPage(n){
@@ -80,8 +142,8 @@ function initCalendar(){
     // 10시 자동 새로고침
     var job=getJob();
     if(job.active&&job.mode==='auto10'){
-      var now=new Date();
-      if(now.getSeconds()%10===0)console.log('[매크로:달력] 10시대기 체크 - autoRefresh:'+job.autoRefresh+' auto10started:'+job.auto10started+' 시각:'+now.getHours()+':'+now.getMinutes()+':'+now.getSeconds());
+      var now=syncedNow();
+      if(now.getSeconds()%10===0)console.log('[매크로:달력] 10시대기 체크(보정됨) - offset:'+_tsOffset+'ms autoRefresh:'+job.autoRefresh+' auto10started:'+job.auto10started+' 시각:'+now.getHours()+':'+now.getMinutes()+':'+now.getSeconds());
       if(job.autoRefresh&&!job.auto10started&&now.getHours()===10&&now.getMinutes()===0&&now.getSeconds()<=5){
         setJob({auto10started:true});
         clickRefresh();
@@ -215,9 +277,10 @@ function initTimeTable(){
     p.id='plazacc-macro-panel';
     p.style.cssText='position:fixed;top:5px;right:5px;width:320px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;max-height:95vh;overflow-y:auto;';
     p.innerHTML=
-      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v12</div>'+
+      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v13</div>'+
       '<div style="padding:12px">'+
       '<div style="text-align:center;font-size:22px;font-weight:bold;color:#2d6a4f;font-family:monospace" id="m-clock">--:--:--</div>'+
+      '<div style="text-align:center;font-size:11px;color:#999;margin-top:2px" id="m-sync">시간 보정 중...</div>'+
       '<div style="margin:8px 0;padding:8px;background:#fff3e0;border-radius:6px;border:1px solid #ffcc02">'+
       '<b>목표 날짜</b> <span style="color:#888;font-size:11px">(10시자동/취소감시용)</span><br>'+
       '<input type="text" id="m-dates" value="'+(s.targetDates||'')+'" placeholder="예: 13,14,15" style="padding:6px;font-size:15px;width:95%;margin-top:4px;border:1px solid #ccc;border-radius:4px">'+
@@ -236,7 +299,20 @@ function initTimeTable(){
       '</div>';
     document.body.appendChild(p);
 
-    setInterval(function(){var n=new Date();var el=document.getElementById('m-clock');if(el)el.textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');},200);
+    setInterval(function(){
+      var n=syncedNow();
+      var el=document.getElementById('m-clock');
+      if(el)el.textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');
+      var syncEl=document.getElementById('m-sync');
+      if(syncEl){
+        if(_tsSynced){
+          var sec=(_tsOffset/1000).toFixed(1);
+          syncEl.innerHTML='<span style="color:#2d6a4f">서버 시간 보정됨 ('+(_tsOffset>0?'+':'')+sec+'초)</span>';
+        }else{
+          syncEl.textContent='시간 보정 중...';
+        }
+      }
+    },200);
     var hdr=document.getElementById('m-header');var dragging=false,dx,dy;
     hdr.onmousedown=function(e){dragging=true;dx=e.clientX-p.getBoundingClientRect().left;dy=e.clientY-p.getBoundingClientRect().top;};
     document.onmousemove=function(e){if(!dragging)return;p.style.left=(e.clientX-dx)+'px';p.style.top=(e.clientY-dy)+'px';p.style.right='auto';};
@@ -253,8 +329,11 @@ function initTimeTable(){
       save(st);
       setJob({active:true,mode:mode,dates:dates,idx:0,results:[],autoClick:true,settings:st,autoRefresh:st.autoRefresh,auto10started:false});
       if(mode==='auto10'){
-        var now=new Date();
-        if(now.getHours()>=10){setCmd({click:dates[0]});}
+        var now=syncedNow();
+        if(now.getHours()>=10){
+          setCmd({click:dates[0]});
+          setTimeout(function(){ window.location.reload(); }, 300);
+        }
         ss('<b style="color:#e65100">10시 자동예약'+(now.getHours()>=10?' (즉시 시작)':' 대기 중')+'</b><br>'+
            dates.join(',')+'일 / '+String(st.timeFrom).padStart(2,'0')+'시~'+String(st.timeTo).padStart(2,'0')+'시 / '+cn(st.course)+'<br>'+
            (now.getHours()<10?'10시에 자동으로 시작됩니다.':''));
@@ -308,6 +387,6 @@ function initTimeTable(){
     };
   }
 
-  console.log('[매크로 v12] 슬롯 '+scanSlots().length+'개');
+  console.log('[매크로 v13] 슬롯 '+scanSlots().length+'개');
 }
 })();

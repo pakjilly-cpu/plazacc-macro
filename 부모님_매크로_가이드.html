@@ -452,9 +452,10 @@
 
   <!-- 패널 모형 -->
   <div class="panel-mock">
-    <div class="panel-mock-header">플라자CC 매크로 v12</div>
+    <div class="panel-mock-header">플라자CC 매크로 v13</div>
     <div class="panel-mock-body">
       <div class="mock-clock">09:55:32</div>
+      <div style="text-align:center;font-size:11px;color:#2d6a4f;margin-bottom:6px;">서버 시간 보정됨 (-2.5초)</div>
       <div style="background:#fff3e0; border:1px solid #ffcc02; border-radius:6px; padding:8px; margin-bottom:8px;">
         <div class="mock-label">목표 날짜</div>
         <div class="mock-input" style="background:#fffde7;">13,14,15</div>
@@ -483,7 +484,24 @@
     <h3>각 부분 설명</h3>
 
     <div class="highlight-box green" style="margin-bottom:12px;">
-      <strong>시계</strong> - 현재 시각이 실시간으로 표시됩니다. 10시 정각 확인할 때 유용합니다.
+      <strong>시계</strong> - <strong>예약 서버 기준 정확한 시각</strong>이 실시간으로 표시됩니다.<br>
+      컴퓨터 시계가 몇 초 틀려도 매크로가 자동으로 보정합니다.<br><br>
+      시계 아래에 <span style="color:#2d6a4f; font-weight:bold;">"서버 시간 보정됨 (+1.5초)"</span> 같은 표시가 나옵니다.
+    </div>
+
+    <div class="highlight-box" style="margin-bottom:12px; background:#f3f8ff; border-color:#1565c0;">
+      <strong style="color:#1565c0;">시간 보정이란?</strong><br><br>
+      컴퓨터 시계는 실제 시간과 1~3초 정도 차이가 날 수 있습니다.<br>
+      매크로는 <strong>예약 서버(한화리조트)의 시계</strong>와 비교해서<br>
+      그 차이만큼 자동으로 맞춰줍니다.<br><br>
+      <strong>예시:</strong> "+1.5초"라고 나오면<br>
+      &rarr; 컴퓨터 시계가 서버보다 1.5초 느리다는 뜻<br>
+      &rarr; 매크로가 1.5초를 앞당겨서 정확한 시각에 동작합니다<br><br>
+      <span style="color:#888; font-size:16px;">
+        보정 숫자가 페이지마다 조금씩 달라질 수 있습니다 (예: +1.5 &rarr; +2.3).<br>
+        이것은 정상입니다. 네트워크 속도 차이 때문이며, 걱정하지 않으셔도 됩니다.<br>
+        <strong>"서버 시간 보정됨"이라고 나오면 잘 되고 있는 것입니다!</strong>
+      </span>
     </div>
 
     <div class="highlight-box" style="margin-bottom:12px;">
@@ -830,8 +848,55 @@
   </div>
 </div>
 
+<!-- ========== 7. 업데이트 방법 ========== -->
+<h2><span class="num">7</span> 매크로 업데이트 방법</h2>
+
+<div class="card">
+  <div class="highlight-box green" style="text-align:center; font-size:20px;">
+    승환이가 매크로를 업데이트해 드렸을 때,<br>
+    <strong>아래 순서대로 하면 새 버전이 적용됩니다.</strong>
+  </div>
+
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-text">
+      <strong>크롬 주소창에 아래 주소를 입력하고 엔터</strong>
+      <div style="background:#fffde7; padding:10px 16px; border-radius:8px; margin-top:8px; font-size:22px; font-family:monospace; color:#333; border:2px solid #fbc02d; letter-spacing:1px;">
+        chrome://extensions
+      </div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-text">
+      <strong>"플라자CC 예약 매크로"를 찾습니다</strong>
+      <div class="sub">카드 형태로 보입니다.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-text">
+      <strong>새로고침 버튼(화살표 동그라미)을 클릭합니다</strong>
+      <div style="margin-top:8px; display:inline-block; background:#eee; border:2px solid #999; border-radius:50%; width:40px; height:40px; text-align:center; line-height:40px; font-size:20px;">
+        &#x21bb;
+      </div>
+      <div class="sub">카드 왼쪽 하단에 있는 작은 화살표 아이콘입니다.<br>누르면 매크로가 새 버전으로 다시 로드됩니다.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-text">
+      <strong>플라자CC 사이트를 새로고침합니다</strong>
+      <div class="sub">이미 열려있는 플라자CC 탭이 있으면 <strong>F5</strong>를 누르세요.<br>매크로 창에 <strong>v13</strong>이 보이면 업데이트 완료!</div>
+    </div>
+  </div>
+</div>
+
 <div style="text-align:center; color:#999; font-size:14px; margin-top:40px; padding:20px;">
-  플라자CC 매크로 v12 사용 가이드 | 2026년 3월
+  플라자CC 매크로 v13 사용 가이드 | 2026년 3월
 </div>
 
 </body>
