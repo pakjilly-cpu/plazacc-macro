@@ -121,7 +121,12 @@ function loadWithDefaults(){var d=defaults();var s=load();for(var k in d){if(s[k
 // 작업 상태
 function getJob(){try{return JSON.parse(localStorage.getItem('plazacc-job'))||{};}catch(e){return{};}}
 function setJob(o){try{var j=getJob();for(var k in o)j[k]=o[k];localStorage.setItem('plazacc-job',JSON.stringify(j));}catch(e){}}
-function clearJob(){try{localStorage.removeItem('plazacc-job');}catch(e){}}
+function clearJob(){try{localStorage.removeItem('plazacc-job');localStorage.removeItem('plazacc-autoreload');}catch(e){}}
+
+// 매크로 자동 리로드 표시 (수동 이탈과 구분용)
+function macroReload(){try{localStorage.setItem('plazacc-autoreload',String(_now()));}catch(e){} window.location.reload();}
+function macroNavigate(url){try{localStorage.setItem('plazacc-autoreload',String(_now()));}catch(e){} window.location.href=url;}
+function isAutoReload(){try{var t=parseInt(localStorage.getItem('plazacc-autoreload')||'0');return(_now()-t)<10000;}catch(e){return false;}}
 
 // 달력 통신
 function getCmd(){try{return JSON.parse(localStorage.getItem('plazacc-cmd'))||{};}catch(e){return{};}}
@@ -238,7 +243,18 @@ function initTimeTable(){
 
   // === 페이지 로드 시: 진행중인 작업 확인 ===
   var job=getJob();
+  // 매크로 자동 리로드가 아닌 경우 (사용자가 수동으로 페이지 이탈 후 복귀) → 작업 중지
+  // lastActive가 30초 이상 지났으면 수동 이탈로 판단
+  if(job.active && job.mode==='cancel'){
+    var lastAct=job.lastActive||0;
+    if(lastAct>0 && (_now()-lastAct)>30000){
+      console.log('[매크로] 30초 이상 미활동 → 작업 자동 중지');
+      clearJob();setCmd({});
+      job={};
+    }
+  }
   if(job.active){
+    setJob({lastActive:_now()});
     var st=job.settings||loadWithDefaults();
     // 슬롯은 detectPage에서 이미 확인됨 → 바로 스캔
     var slots=scanSlots();
@@ -288,8 +304,8 @@ function initTimeTable(){
       var el3=document.getElementById('m-status');
       if(el3)el3.innerHTML='<b style="color:#6a1b9a">취소표 감시</b> '+nextDate+'일 매칭없음, 3초 후 재확인...';
       document.getElementById('m-stop').style.display='block';
-      ['m-auto10','m-cancel','m-scan'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
-      setTimeout(function(){ window.location.reload(); },3000);
+      ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
+      setTimeout(function(){ macroReload(); },3000);
     }else{
       // 다른 날짜 → 달력에 명령
       setCmd({click:nextDate});
@@ -299,7 +315,7 @@ function initTimeTable(){
       var el4=document.getElementById('m-status');
       if(el4)el4.innerHTML='<b style="color:'+color+'">'+modeLabel+'</b> '+nextDate+'일 확인 중 ('+(idx+1)+'/'+dates.length+')';
       document.getElementById('m-stop').style.display='block';
-      ['m-auto10','m-cancel','m-scan'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
+      ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
     }
     return;
   }
@@ -328,10 +344,10 @@ function initTimeTable(){
             var prefix=dm[1]; // YYYYMM
             var newDate=prefix+String(dates[0]).padStart(2,'0');
             var newUrl=curUrl.replace(/targetDate=\d{6,8}/,'targetDate='+newDate);
-            window.location.href=newUrl;
+            macroNavigate(newUrl);
           }else{
             // URL에 targetDate 없으면 페이지 새로고침으로 폴백
-            window.location.reload();
+            macroReload();
           }
         }
       }
@@ -407,7 +423,7 @@ function initTimeTable(){
         var pastTarget=(now.getHours()>tH||(now.getHours()===tH&&now.getMinutes()>=tM));
         if(pastTarget){
           setCmd({click:dates[0]});
-          setTimeout(function(){ window.location.reload(); }, 300);
+          setTimeout(function(){ macroReload(); }, 300);
         }
         ss('<b style="color:#e65100">'+targetLabel+' 자동예약'+(pastTarget?' (즉시 시작)':' 대기 중')+'</b><br>'+
            dates.join(',')+'일 / '+String(st.timeFrom).padStart(2,'0')+'시~'+String(st.timeTo).padStart(2,'0')+'시 / '+cn(st.course)+'<br>'+
@@ -415,11 +431,11 @@ function initTimeTable(){
       }else{
         // 취소감시: 현재 페이지가 목표 날짜면 바로 reload, 아니면 달력에 명령
         if(dates[0]===currentDateFromUrl){
-          ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중...');
-          setTimeout(function(){ window.location.reload(); },500);
+          ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중...<br><span style="color:#888;font-size:11px">페이지 이탈 시 자동 중지</span>');
+          setTimeout(function(){ macroReload(); },500);
         }else{
           setCmd({click:dates[0]});
-          ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중 (1/'+dates.length+')');
+          ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중 (1/'+dates.length+')<br><span style="color:#888;font-size:11px">페이지 이탈 시 자동 중지</span>');
         }
       }
       showBtns(false);
@@ -471,6 +487,7 @@ function initTimeTable(){
       p.style.borderColor='#2d6a4f';
       ss('중지됨');
     };
+
   }
 
   console.log('[매크로 v13] 슬롯 '+scanSlots().length+'개');
