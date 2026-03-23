@@ -297,6 +297,38 @@ function initTimeTable(){
     return;
   }
 
+  // === 10시 자동: 시간표 iframe에서 카운트다운 (크롬 쓰로틀링 방지) ===
+  (function auto10countdown(){
+    var job=getJob();
+    if(!job.active||job.mode!=='auto10'||job.auto10started) return;
+    var interval=setInterval(function(){
+      var j=getJob();
+      if(!j.active||j.mode!=='auto10'){clearInterval(interval);return;}
+      if(j.auto10started){clearInterval(interval);return;}
+      var now=syncedNow();
+      if(now.getHours()===10&&now.getMinutes()===0&&now.getSeconds()<=5){
+        clearInterval(interval);
+        setJob({auto10started:true});
+        console.log('[매크로:시간표] 10시 도달! 목표날짜로 이동');
+        // 현재 시간표 URL의 targetDate를 목표 날짜로 교체하여 직접 이동
+        var dates=j.dates||[];
+        if(dates.length>0){
+          var curUrl=window.location.href;
+          var dm=curUrl.match(/targetDate=(\d{6})\d{2}/);
+          if(dm){
+            var prefix=dm[1]; // YYYYMM
+            var newDate=prefix+String(dates[0]).padStart(2,'0');
+            var newUrl=curUrl.replace(/targetDate=\d{6,8}/,'targetDate='+newDate);
+            window.location.href=newUrl;
+          }else{
+            // URL에 targetDate 없으면 페이지 새로고침으로 폴백
+            window.location.reload();
+          }
+        }
+      }
+    },100);
+  })();
+
   // === 작업 없음: 일반 UI ===
   var st=loadWithDefaults();
   buildUI(st);
