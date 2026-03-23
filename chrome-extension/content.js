@@ -27,16 +27,16 @@ function syncedNow(){
 }
 
 // 서버 Date 헤더로 PC 시계 오차 측정 (3회 측정, 최소 RTT 채택)
-(function syncTime(){
+var _syncSeq = 0;
+function doSyncTime(label){
   var best = null;
   var done = 0;
   var total = 3;
-  var seq = 0;
   function sample(){
-    seq++;
+    _syncSeq++;
     var t0 = _now();
     var url = window.location.href.split('#')[0]; // #none 제거
-    url += (url.indexOf('?') >= 0 ? '&' : '?') + '_nocache=' + seq + '' + Math.floor(Math.random()*99999);
+    url += (url.indexOf('?') >= 0 ? '&' : '?') + '_nocache=' + _syncSeq + '' + Math.floor(Math.random()*99999);
     var xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
     var handled = false;
@@ -61,7 +61,7 @@ function syncedNow(){
       } else {
         _tsOffset = best.offset;
         _tsSynced = true;
-        console.log('[매크로] 시간보정 완료: ' + (_tsOffset>0?'+':'') + (_tsOffset/1000).toFixed(1) + '초 (RTT:' + best.rtt + 'ms)');
+        console.log('[매크로] '+(label||'시간보정')+' 완료: ' + (_tsOffset>0?'+':'') + (_tsOffset/1000).toFixed(1) + '초 (RTT:' + best.rtt + 'ms)');
       }
     };
     xhr.onerror = function(){
@@ -70,15 +70,29 @@ function syncedNow(){
       else if(best){
         _tsOffset = best.offset;
         _tsSynced = true;
-        console.log('[매크로] 시간보정 완료(일부): ' + (_tsOffset>0?'+':'') + (_tsOffset/1000).toFixed(1) + '초');
+        console.log('[매크로] '+(label||'시간보정')+' 완료(일부): ' + (_tsOffset>0?'+':'') + (_tsOffset/1000).toFixed(1) + '초');
       } else {
-        console.log('[매크로] 시간보정 실패, PC 시간 사용');
+        console.log('[매크로] '+(label||'시간보정')+' 실패, PC 시간 사용');
       }
     };
     xhr.send();
   }
   sample();
-})();
+}
+// 페이지 로드 시 1차 측정
+doSyncTime('초기보정');
+
+// 9:59:50에 자동 재측정 (10시 정각 직전 최신 오프셋 확보)
+var _reSyncDone = false;
+setInterval(function(){
+  if(_reSyncDone) return;
+  var pc = new Date();
+  if(pc.getHours()===9 && pc.getMinutes()===59 && pc.getSeconds()>=50){
+    _reSyncDone = true;
+    console.log('[매크로] 9:59:50 직전 재보정 시작');
+    doSyncTime('직전재보정');
+  }
+}, 1000);
 
 // 페이지 감지: 100ms 간격 폴링
 (function detectPage(n){
