@@ -82,14 +82,20 @@ function doSyncTime(label){
 // 페이지 로드 시 1차 측정
 doSyncTime('초기보정');
 
-// 9:59:50에 자동 재측정 (10시 정각 직전 최신 오프셋 확보)
+// 목표 시간 10초 전 자동 재측정 (직전 최신 오프셋 확보)
 var _reSyncDone = false;
 setInterval(function(){
   if(_reSyncDone) return;
+  var job;try{job=JSON.parse(localStorage.getItem('plazacc-job'))||{};}catch(e){job={};}
+  if(!job.active||job.mode!=='auto10') return;
+  var tH=job.triggerH!=null?job.triggerH:10, tM=job.triggerM!=null?job.triggerM:0;
+  // 목표 10초 전 = (tH:tM:00) - 10초
+  var preH=tH, preM=tM-1, preSec=50;
+  if(preM<0){preM=59;preH=(preH-1+24)%24;}
   var pc = new Date();
-  if(pc.getHours()===9 && pc.getMinutes()===59 && pc.getSeconds()>=50){
+  if(pc.getHours()===preH && pc.getMinutes()===preM && pc.getSeconds()>=preSec){
     _reSyncDone = true;
-    console.log('[매크로] 9:59:50 직전 재보정 시작');
+    console.log('[매크로] 직전 재보정 시작 ('+tH+':'+String(tM).padStart(2,'0')+' 10초 전)');
     doSyncTime('직전재보정');
   }
 }, 1000);
@@ -169,12 +175,13 @@ function initCalendar(){
       return;
     }
 
-    // 10시 자동 새로고침
+    // 자동 새로고침 (10시 또는 테스트 시간)
     var job=getJob();
     if(job.active&&job.mode==='auto10'){
       var now=syncedNow();
-      if(now.getSeconds()%10===0)console.log('[매크로:달력] 10시대기 체크(보정됨) - offset:'+_tsOffset+'ms autoRefresh:'+job.autoRefresh+' auto10started:'+job.auto10started+' 시각:'+now.getHours()+':'+now.getMinutes()+':'+now.getSeconds());
-      if(job.autoRefresh&&!job.auto10started&&now.getHours()===10&&now.getMinutes()===0&&now.getSeconds()<=5){
+      var tH=job.triggerH!=null?job.triggerH:10, tM=job.triggerM!=null?job.triggerM:0;
+      if(now.getSeconds()%10===0)console.log('[매크로:달력] 대기 체크 - target:'+tH+':'+String(tM).padStart(2,'0')+' offset:'+_tsOffset+'ms auto10started:'+job.auto10started+' 시각:'+now.getHours()+':'+now.getMinutes()+':'+now.getSeconds());
+      if(job.autoRefresh&&!job.auto10started&&now.getHours()===tH&&now.getMinutes()===tM&&now.getSeconds()<=5){
         setJob({auto10started:true});
         clickRefresh();
         var dates=job.dates||[];
@@ -297,19 +304,21 @@ function initTimeTable(){
     return;
   }
 
-  // === 10시 자동: 시간표 iframe에서 카운트다운 (크롬 쓰로틀링 방지) ===
+  // === 자동: 시간표 iframe에서 카운트다운 (크롬 쓰로틀링 방지) ===
   (function auto10countdown(){
     var job=getJob();
     if(!job.active||job.mode!=='auto10'||job.auto10started) return;
+    var tH=job.triggerH!=null?job.triggerH:10, tM=job.triggerM!=null?job.triggerM:0;
+    console.log('[매크로:시간표] 카운트다운 시작 - target:'+tH+':'+String(tM).padStart(2,'0'));
     var interval=setInterval(function(){
       var j=getJob();
       if(!j.active||j.mode!=='auto10'){clearInterval(interval);return;}
       if(j.auto10started){clearInterval(interval);return;}
       var now=syncedNow();
-      if(now.getHours()===10&&now.getMinutes()===0&&now.getSeconds()<=5){
+      if(now.getHours()===tH&&now.getMinutes()===tM&&now.getSeconds()<=5){
         clearInterval(interval);
         setJob({auto10started:true});
-        console.log('[매크로:시간표] 10시 도달! 목표날짜로 이동');
+        console.log('[매크로:시간표] '+tH+':'+String(tM).padStart(2,'0')+' 도달! 목표날짜로 이동');
         // 현재 시간표 URL의 targetDate를 목표 날짜로 교체하여 직접 이동
         var dates=j.dates||[];
         if(dates.length>0){
@@ -355,7 +364,8 @@ function initTimeTable(){
       '<div style="display:flex;gap:6px;margin-top:10px">'+
       '<button id="m-scan" style="flex:1;padding:10px 4px;background:#1565c0;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap">스캔</button>'+
       '<button id="m-auto10" style="flex:1;padding:10px 4px;background:#e65100;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap">10시자동</button>'+
-      '<button id="m-cancel" style="flex:1;padding:10px 4px;background:#6a1b9a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap">취소감시</button></div>'+
+      '<button id="m-cancel" style="flex:1;padding:10px 4px;background:#6a1b9a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap">취소감시</button>'+
+      '<button id="m-test" style="flex:1;padding:10px 4px;background:#ff6f00;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:bold;cursor:pointer;white-space:nowrap">1분후<br>테스트</button></div>'+
       '<button id="m-stop" style="width:100%;padding:12px;background:#757575;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer;display:none;margin-top:6px">중지</button>'+
       '<div id="m-status" style="margin-top:8px;padding:8px;background:#f5f5f5;border-radius:6px;font-size:12px;min-height:40px;line-height:1.5;max-height:300px;overflow-y:auto">설정 후 버튼을 누르세요.</div>'+
       '</div>';
@@ -383,22 +393,25 @@ function initTimeTable(){
     function gs(){return{timeFrom:document.getElementById('m-from').value,timeTo:document.getElementById('m-to').value,targetDates:document.getElementById('m-dates').value,autoRefresh:document.getElementById('m-autorefresh').checked};}
     function ss(html){document.getElementById('m-status').innerHTML=html;}
     function showBtns(show){
-      ['m-auto10','m-cancel','m-scan'].forEach(function(id){document.getElementById(id).style.display=show?'':'none';});
+      ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){document.getElementById(id).style.display=show?'':'none';});
       document.getElementById('m-stop').style.display=show?'none':'block';
     }
 
-    function startJob(mode,dates,st){
+    function startJob(mode,dates,st,triggerH,triggerM){
       save(st);
-      setJob({active:true,mode:mode,dates:dates,idx:0,results:[],autoClick:true,settings:st,autoRefresh:st.autoRefresh,auto10started:false});
+      var tH=triggerH!=null?triggerH:10, tM=triggerM!=null?triggerM:0;
+      setJob({active:true,mode:mode,dates:dates,idx:0,results:[],autoClick:true,settings:st,autoRefresh:st.autoRefresh,auto10started:false,triggerH:tH,triggerM:tM});
       if(mode==='auto10'){
         var now=syncedNow();
-        if(now.getHours()>=10){
+        var targetLabel=String(tH).padStart(2,'0')+':'+String(tM).padStart(2,'0');
+        var pastTarget=(now.getHours()>tH||(now.getHours()===tH&&now.getMinutes()>=tM));
+        if(pastTarget){
           setCmd({click:dates[0]});
           setTimeout(function(){ window.location.reload(); }, 300);
         }
-        ss('<b style="color:#e65100">10시 자동예약'+(now.getHours()>=10?' (즉시 시작)':' 대기 중')+'</b><br>'+
+        ss('<b style="color:#e65100">'+targetLabel+' 자동예약'+(pastTarget?' (즉시 시작)':' 대기 중')+'</b><br>'+
            dates.join(',')+'일 / '+String(st.timeFrom).padStart(2,'0')+'시~'+String(st.timeTo).padStart(2,'0')+'시 / '+cn(st.course)+'<br>'+
-           (now.getHours()<10?'10시에 자동으로 시작됩니다.':''));
+           (pastTarget?'':'<b>'+targetLabel+'</b>에 자동으로 시작됩니다.'));
       }else{
         // 취소감시: 현재 페이지가 목표 날짜면 바로 reload, 아니면 달력에 명령
         if(dates[0]===currentDateFromUrl){
@@ -432,6 +445,17 @@ function initTimeTable(){
       var targets=(st.targetDates||'').split(',').map(function(x){return x.trim()}).filter(function(x){return x!==''});
       if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
       startJob('auto10',targets,st);
+    };
+
+    document.getElementById('m-test').onclick=function(){
+      var st=gs();
+      var targets=(st.targetDates||'').split(',').map(function(x){return x.trim()}).filter(function(x){return x!==''});
+      if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
+      var now=syncedNow();
+      var testM=now.getMinutes()+1;
+      var testH=now.getHours();
+      if(testM>=60){testM=0;testH=(testH+1)%24;}
+      startJob('auto10',targets,st,testH,testM);
     };
 
     document.getElementById('m-cancel').onclick=function(){
