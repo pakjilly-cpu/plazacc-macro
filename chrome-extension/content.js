@@ -243,18 +243,7 @@ function initTimeTable(){
 
   // === 페이지 로드 시: 진행중인 작업 확인 ===
   var job=getJob();
-  // 매크로 자동 리로드가 아닌 경우 (사용자가 수동으로 페이지 이탈 후 복귀) → 작업 중지
-  // lastActive가 30초 이상 지났으면 수동 이탈로 판단
-  if(job.active && job.mode==='cancel'){
-    var lastAct=job.lastActive||0;
-    if(lastAct>0 && (_now()-lastAct)>30000){
-      console.log('[매크로] 30초 이상 미활동 → 작업 자동 중지');
-      clearJob();setCmd({});
-      job={};
-    }
-  }
   if(job.active){
-    setJob({lastActive:_now()});
     var st=job.settings||loadWithDefaults();
     // 슬롯은 detectPage에서 이미 확인됨 → 바로 스캔
     var slots=scanSlots();
@@ -321,7 +310,7 @@ function initTimeTable(){
   }
 
   // === 자동: 시간표 iframe에서 카운트다운 (크롬 쓰로틀링 방지) ===
-  (function auto10countdown(){
+  function startAuto10Countdown(){
     var job=getJob();
     if(!job.active||job.mode!=='auto10'||job.auto10started) return;
     var tH=job.triggerH!=null?job.triggerH:10, tM=job.triggerM!=null?job.triggerM:0;
@@ -352,7 +341,8 @@ function initTimeTable(){
         }
       }
     },100);
-  })();
+  }
+  startAuto10Countdown(); // 페이지 로드 시 체크
 
   // === 작업 없음: 일반 UI ===
   var st=loadWithDefaults();
@@ -440,6 +430,7 @@ function initTimeTable(){
       }
       showBtns(false);
       p.style.borderColor=mode==='auto10'?'#e65100':'#6a1b9a';
+      if(mode==='auto10') startAuto10Countdown();
     }
 
     // 스캔 (수동 테스트)
