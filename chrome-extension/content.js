@@ -1,4 +1,4 @@
-// 플라자CC 매크로 v14 - 서버/PC 시간 비교 표시 + Date.now 오버라이드 방어
+// 플라자CC 매크로 v15 - 10시자동 타이머 쓰로틀링 버그 수정
 (function(){
 'use strict';
 
@@ -108,7 +108,7 @@ setInterval(function(){
   if(isCalendar){ initCalendar(); return; }
   var hasJob = false;
   try{ hasJob = !!(JSON.parse(localStorage.getItem('plazacc-job'))||{}).active; }catch(e){}
-  var maxTries = hasJob ? 100 : 20; // 작업중이면 10초, 아니면 2초
+  var maxTries = hasJob ? 200 : 20; // 작업중이면 20초(느린 네트워크 대비), 아니면 2초
   if(n < maxTries){ setTimeout(function(){ detectPage(n+1); }, 100); }
 })(0);
 
@@ -186,7 +186,7 @@ function initCalendar(){
       var now=syncedNow();
       var tH=job.triggerH!=null?job.triggerH:10, tM=job.triggerM!=null?job.triggerM:0;
       if(now.getSeconds()%10===0)console.log('[매크로:달력] 대기 체크 - target:'+tH+':'+String(tM).padStart(2,'0')+' offset:'+_tsOffset+'ms auto10started:'+job.auto10started+' 시각:'+now.getHours()+':'+now.getMinutes()+':'+now.getSeconds());
-      if(job.autoRefresh&&!job.auto10started&&now.getHours()===tH&&now.getMinutes()===tM&&now.getSeconds()<=5){
+      if(job.autoRefresh&&!job.auto10started&&((now.getHours()>tH)||(now.getHours()===tH&&now.getMinutes()>=tM))){
         setJob({auto10started:true});
         clickRefresh();
         var dates=job.dates||[];
@@ -265,6 +265,24 @@ function initTimeTable(){
       return;
     }
 
+    // auto10: 매칭 없으면 300ms 후 재시도 (최대 3회, 10시 직후 서버 지연 대비)
+    if(job.mode==='auto10'){
+      var retries=job.retryCount||0;
+      if(retries<3){
+        setJob({retryCount:retries+1});
+        console.log('[매크로] auto10 매칭없음 (슬롯:'+slots.length+'/매칭:'+matched.length+'), 재시도 '+(retries+1)+'/3');
+        buildUI(st);
+        var elR=document.getElementById('m-status');
+        if(elR)elR.innerHTML='<b style="color:#e65100">슬롯 확인 중...</b> 재시도 '+(retries+1)+'/3<br>현재 슬롯 '+slots.length+'개, 매칭 '+matched.length+'개';
+        document.getElementById('m-stop').style.display='block';
+        ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
+        setTimeout(function(){ macroReload(); },300);
+        return;
+      }
+      console.log('[매크로] auto10 재시도 3회 소진, 다음 날짜로');
+      setJob({retryCount:0});
+    }
+
     // 매칭 없음 → 다음 단계
     var dates=job.dates||[];
     var idx=(job.idx||0)+1;
@@ -279,7 +297,7 @@ function initTimeTable(){
       clearJob();setCmd({});
       buildUI(st);
       var el2=document.getElementById('m-status');
-      if(el2)el2.innerHTML='<span style="color:red">모든 목표 날짜에서 매칭 슬롯을 찾지 못했습니다.</span>';
+      if(el2)el2.innerHTML='<span style="color:red">모든 목표 날짜에서 매칭 슬롯을 찾지 못했습니다.</span><br>(각 날짜 3회씩 재시도 완료)';
       return;
     }
 
@@ -310,39 +328,79 @@ function initTimeTable(){
   }
 
   // === 자동: 시간표 iframe에서 카운트다운 (크롬 쓰로틀링 방지) ===
+  var _countdownRunning=false;
   function startAuto10Countdown(){
+    if(_countdownRunning) return; // 중복 방지
     var job=getJob();
     if(!job.active||job.mode!=='auto10'||job.auto10started) return;
+    _countdownRunning=true;
     var tH=job.triggerH!=null?job.triggerH:10, tM=job.triggerM!=null?job.triggerM:0;
-    console.log('[매크로:시간표] 카운트다운 시작 - target:'+tH+':'+String(tM).padStart(2,'0'));
+    var targetLabel=String(tH).padStart(2,'0')+':'+String(tM).padStart(2,'0');
+    // 오늘의 목표 시각 (ms)
+    var ref=syncedNow();
+    var targetMs=new Date(ref.getFullYear(),ref.getMonth(),ref.getDate(),tH,tM,0,0).getTime();
+    console.log('[매크로:시간표] 카운트다운 시작 - target:'+targetLabel+' targetMs:'+targetMs+' now:'+ref.getTime()+' diff:'+(targetMs-ref.getTime())+'ms');
+    var lastSec=-1;
     var interval=setInterval(function(){
       var j=getJob();
-      if(!j.active||j.mode!=='auto10'){clearInterval(interval);return;}
-      if(j.auto10started){clearInterval(interval);return;}
+      if(!j.active||j.mode!=='auto10'){clearInterval(interval);_countdownRunning=false;return;}
+      if(j.auto10started){clearInterval(interval);_countdownRunning=false;return;}
       var now=syncedNow();
-      if(now.getHours()===tH&&now.getMinutes()===tM&&now.getSeconds()<=5){
-        clearInterval(interval);
+      var nowMs=now.getTime();
+      var remaining=targetMs-nowMs;
+
+      // 1초마다 화면에 잔여시간 표시 (살아있음 확인용)
+      var curSec=Math.floor(nowMs/1000);
+      if(curSec!==lastSec){
+        lastSec=curSec;
+        var el=document.getElementById('m-status');
+        if(el&&remaining>0){
+          var rs=Math.ceil(remaining/1000); var rm=Math.floor(rs/60); rs=rs%60;
+          el.innerHTML='<b style="color:#e65100">'+targetLabel+' 자동예약 대기</b><br>'+
+            '<span style="font-size:20px;font-weight:bold;color:#d32f2f">'+rm+'분 '+String(rs).padStart(2,'0')+'초 남음</span><br>'+
+            (j.dates||[]).join(',')+'일 / '+String((j.settings||{}).timeFrom||'10').padStart(2,'0')+'~'+String((j.settings||{}).timeTo||'14').padStart(2,'0')+'시<br>'+
+            '<span style="color:#2d6a4f;font-size:11px">카운트다운 작동 중 (보정:'+(_tsOffset>0?'+':'')+(_tsOffset/1000).toFixed(1)+'초)</span>';
+        }
+      }
+
+      // 목표 시각 도달! (ms 단위 비교, auto10started가 중복 방지)
+      if(nowMs>=targetMs){
+        clearInterval(interval);_countdownRunning=false;
         setJob({auto10started:true});
-        console.log('[매크로:시간표] '+tH+':'+String(tM).padStart(2,'0')+' 도달! 목표날짜로 이동');
-        // 현재 시간표 URL의 targetDate를 목표 날짜로 교체하여 직접 이동
+        var actualTime=now.getHours()+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0')+'.'+String(now.getMilliseconds()).padStart(3,'0');
+        console.log('[매크로:시간표] '+targetLabel+' 도달! 실제:'+actualTime+' 오차:'+(nowMs-targetMs)+'ms');
+        var statusEl=document.getElementById('m-status');
+        if(statusEl) statusEl.innerHTML='<b style="color:#d32f2f;font-size:16px">'+targetLabel+' 도달! 이동 중...</b>';
+        // 목표 날짜 시간표로 이동
         var dates=j.dates||[];
         if(dates.length>0){
           var curUrl=window.location.href;
           var dm=curUrl.match(/targetDate=(\d{6})\d{2}/);
           if(dm){
-            var prefix=dm[1]; // YYYYMM
+            var prefix=dm[1];
             var newDate=prefix+String(dates[0]).padStart(2,'0');
             var newUrl=curUrl.replace(/targetDate=\d{6,8}/,'targetDate='+newDate);
-            macroNavigate(newUrl);
+            if(newUrl===curUrl){
+              console.log('[매크로] 같은 날짜 -> reload');
+              macroReload();
+            }else{
+              console.log('[매크로] 날짜 변경 -> '+newDate);
+              macroNavigate(newUrl);
+            }
           }else{
-            // URL에 targetDate 없으면 페이지 새로고침으로 폴백
+            console.log('[매크로] URL에 targetDate 없음 -> reload');
             macroReload();
           }
         }
       }
     },100);
   }
-  startAuto10Countdown(); // 페이지 로드 시 체크
+  startAuto10Countdown();
+
+  // 탭 포커스 복귀 시 즉시 체크 (크롬 백그라운드 쓰로틀링 대비)
+  document.addEventListener('visibilitychange',function(){
+    if(!document.hidden) startAuto10Countdown();
+  });
 
   // === 작업 없음: 일반 UI ===
   var st=loadWithDefaults();
@@ -354,7 +412,7 @@ function initTimeTable(){
     p.id='plazacc-macro-panel';
     p.style.cssText='position:fixed;top:5px;right:5px;width:320px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;max-height:95vh;overflow-y:auto;';
     p.innerHTML=
-      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v14</div>'+
+      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v15</div>'+
       '<div style="padding:12px">'+
       '<div style="text-align:center;font-size:22px;font-weight:bold;color:#2d6a4f;font-family:monospace" id="m-clock">--:--:--</div>'+
       '<div style="text-align:center;font-size:11px;color:#999;margin-top:2px" id="m-sync">시간 보정 중...</div>'+
@@ -481,6 +539,6 @@ function initTimeTable(){
 
   }
 
-  console.log('[매크로 v13] 슬롯 '+scanSlots().length+'개');
+  console.log('[매크로 v15] 시간표 초기화 완료, 슬롯 '+scanSlots().length+'개');
 }
 })();
