@@ -1,4 +1,4 @@
-// 플라자CC 매크로 v15 - 10시자동 타이머 쓰로틀링 버그 수정
+// 플라자CC 매크로 v18 - 5대 버그 수정 (달력경유네비게이션, job잔류, cmd잔류, 날짜정규화, watchdog)
 (function(){
 'use strict';
 
@@ -121,7 +121,7 @@ function loadWithDefaults(){var d=defaults();var s=load();for(var k in d){if(s[k
 // 작업 상태
 function getJob(){try{return JSON.parse(localStorage.getItem('plazacc-job'))||{};}catch(e){return{};}}
 function setJob(o){try{var j=getJob();for(var k in o)j[k]=o[k];localStorage.setItem('plazacc-job',JSON.stringify(j));}catch(e){}}
-function clearJob(){try{localStorage.removeItem('plazacc-job');localStorage.removeItem('plazacc-autoreload');}catch(e){}}
+function clearJob(){try{localStorage.removeItem('plazacc-job');localStorage.removeItem('plazacc-autoreload');localStorage.removeItem('plazacc-cmd');}catch(e){}}
 
 // 매크로 자동 리로드 표시 (수동 이탈과 구분용)
 function macroReload(){try{localStorage.setItem('plazacc-autoreload',String(_now()));}catch(e){} window.location.reload();}
@@ -180,24 +180,8 @@ function initCalendar(){
       return;
     }
 
-    // 자동 새로고침 (10시 또는 테스트 시간)
-    var job=getJob();
-    if(job.active&&job.mode==='auto10'){
-      var now=syncedNow();
-      var tH=job.triggerH!=null?job.triggerH:10, tM=job.triggerM!=null?job.triggerM:0;
-      if(now.getSeconds()%10===0)console.log('[매크로:달력] 대기 체크 - target:'+tH+':'+String(tM).padStart(2,'0')+' offset:'+_tsOffset+'ms auto10started:'+job.auto10started+' 시각:'+now.getHours()+':'+now.getMinutes()+':'+now.getSeconds());
-      if(job.autoRefresh&&!job.auto10started&&((now.getHours()>tH)||(now.getHours()===tH&&now.getMinutes()>=tM))){
-        setJob({auto10started:true});
-        clickRefresh();
-        var dates=job.dates||[];
-        if(dates.length>0){
-          (function waitClick(n){
-            if(clickDate(dates[0]))return;
-            if(n<100)setTimeout(function(){waitClick(n+1);},100);
-          })(0);
-        }
-      }
-    }
+    // auto10 트리거는 시간표 iframe의 카운트다운에서 전담 처리
+    // (달력에서 중복 트리거하면 auto10started 플래그 경쟁 조건 발생)
   },100);
 }
 
@@ -314,8 +298,8 @@ function initTimeTable(){
       ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
       setTimeout(function(){ macroReload(); },3000);
     }else{
-      // 다른 날짜 → 달력에 명령
-      setCmd({click:nextDate});
+      // 다른 날짜 → 달력에 명령 (refreshAndClick: 새로고침 후 클릭, 재시도 내장)
+      setCmd({refreshAndClick:nextDate});
       buildUI(st);
       var modeLabel={'auto10':'10시 자동예약','cancel':'취소표 감시'}[job.mode]||job.mode;
       var color={'auto10':'#e65100','cancel':'#6a1b9a'}[job.mode]||'#333';
@@ -323,6 +307,14 @@ function initTimeTable(){
       if(el4)el4.innerHTML='<b style="color:'+color+'">'+modeLabel+'</b> '+nextDate+'일 확인 중 ('+(idx+1)+'/'+dates.length+')';
       document.getElementById('m-stop').style.display='block';
       ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
+      // watchdog: 8초 내 시간표 리로드 안 되면 강제 reload
+      setTimeout(function(){
+        var j2=getJob();
+        if(j2.active&&j2.idx===idx){
+          console.log('[매크로] 달력 클릭 타임아웃 ('+nextDate+'일), fallback reload');
+          macroReload();
+        }
+      },8000);
     }
     return;
   }
@@ -363,34 +355,25 @@ function initTimeTable(){
         }
       }
 
-      // 목표 시각 도달! (ms 단위 비교, auto10started가 중복 방지)
+      // 목표 시각 도달! → 달력에 refreshAndClick 명령
       if(nowMs>=targetMs){
         clearInterval(interval);_countdownRunning=false;
-        setJob({auto10started:true});
+        setJob({auto10started:true,retryCount:0});
         var actualTime=now.getHours()+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0')+'.'+String(now.getMilliseconds()).padStart(3,'0');
         console.log('[매크로:시간표] '+targetLabel+' 도달! 실제:'+actualTime+' 오차:'+(nowMs-targetMs)+'ms');
         var statusEl=document.getElementById('m-status');
-        if(statusEl) statusEl.innerHTML='<b style="color:#d32f2f;font-size:16px">'+targetLabel+' 도달! 이동 중...</b>';
-        // 목표 날짜 시간표로 이동
+        if(statusEl) statusEl.innerHTML='<b style="color:#d32f2f;font-size:16px">'+targetLabel+' 도달! 달력 새로고침 중...</b>';
         var dates=j.dates||[];
         if(dates.length>0){
-          var curUrl=window.location.href;
-          var dm=curUrl.match(/targetDate=(\d{6})\d{2}/);
-          if(dm){
-            var prefix=dm[1];
-            var newDate=prefix+String(dates[0]).padStart(2,'0');
-            var newUrl=curUrl.replace(/targetDate=\d{6,8}/,'targetDate='+newDate);
-            if(newUrl===curUrl){
-              console.log('[매크로] 같은 날짜 -> reload');
-              macroReload();
-            }else{
-              console.log('[매크로] 날짜 변경 -> '+newDate);
-              macroNavigate(newUrl);
+          setCmd({refreshAndClick:dates[0]});
+          // 5초 내 시간표 리로드 안 되면 재시도
+          setTimeout(function(){
+            var j2=getJob();
+            if(j2.active&&j2.auto10started){
+              console.log('[매크로] 달력 네비게이션 타임아웃, retry');
+              setCmd({refreshAndClick:dates[0]});
             }
-          }else{
-            console.log('[매크로] URL에 targetDate 없음 -> reload');
-            macroReload();
-          }
+          },5000);
         }
       }
     },100);
@@ -412,7 +395,7 @@ function initTimeTable(){
     p.id='plazacc-macro-panel';
     p.style.cssText='position:fixed;top:5px;right:5px;width:320px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;max-height:95vh;overflow-y:auto;';
     p.innerHTML=
-      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v15</div>'+
+      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v18</div>'+
       '<div style="padding:12px">'+
       '<div style="text-align:center;font-size:22px;font-weight:bold;color:#2d6a4f;font-family:monospace" id="m-clock">--:--:--</div>'+
       '<div style="text-align:center;font-size:11px;color:#999;margin-top:2px" id="m-sync">시간 보정 중...</div>'+
@@ -470,11 +453,11 @@ function initTimeTable(){
         var targetLabel=String(tH).padStart(2,'0')+':'+String(tM).padStart(2,'0');
         var pastTarget=(now.getHours()>tH||(now.getHours()===tH&&now.getMinutes()>=tM));
         if(pastTarget){
-          setCmd({click:dates[0]});
+          setCmd({refreshAndClick:dates[0]});
           setTimeout(function(){ macroReload(); }, 300);
         }
         ss('<b style="color:#e65100">'+targetLabel+' 자동예약'+(pastTarget?' (즉시 시작)':' 대기 중')+'</b><br>'+
-           dates.join(',')+'일 / '+String(st.timeFrom).padStart(2,'0')+'시~'+String(st.timeTo).padStart(2,'0')+'시 / '+cn(st.course)+'<br>'+
+           dates.join(',')+'일 / '+String(st.timeFrom).padStart(2,'0')+'시~'+String(st.timeTo).padStart(2,'0')+'시<br>'+
            (pastTarget?'':'<b>'+targetLabel+'</b>에 자동으로 시작됩니다.'));
       }else{
         // 취소감시: 현재 페이지가 목표 날짜면 바로 reload, 아니면 달력에 명령
@@ -482,8 +465,16 @@ function initTimeTable(){
           ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중...<br><span style="color:#888;font-size:11px">페이지 이탈 시 자동 중지</span>');
           setTimeout(function(){ macroReload(); },500);
         }else{
-          setCmd({click:dates[0]});
+          setCmd({refreshAndClick:dates[0]});
           ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중 (1/'+dates.length+')<br><span style="color:#888;font-size:11px">페이지 이탈 시 자동 중지</span>');
+          // watchdog: 달력 클릭 실패 대비
+          setTimeout(function(){
+            var j2=getJob();
+            if(j2.active&&j2.mode==='cancel'&&j2.idx===0){
+              console.log('[매크로] 취소감시 시작 타임아웃, fallback reload');
+              macroReload();
+            }
+          },8000);
         }
       }
       showBtns(false);
@@ -505,16 +496,21 @@ function initTimeTable(){
       ss(html);
     };
 
+    // 날짜 입력 파싱: "09"→"9", "13"→"13" (달력 텍스트와 일치시키기 위해 leading zero 제거)
+    function parseDates(st){
+      return(st.targetDates||'').split(',').map(function(x){var n=parseInt(x.trim(),10);return isNaN(n)?'':String(n);}).filter(function(x){return x!=='';});
+    }
+
     document.getElementById('m-auto10').onclick=function(){
       var st=gs();
-      var targets=(st.targetDates||'').split(',').map(function(x){return x.trim()}).filter(function(x){return x!==''});
+      var targets=parseDates(st);
       if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
       startJob('auto10',targets,st);
     };
 
     document.getElementById('m-test').onclick=function(){
       var st=gs();
-      var targets=(st.targetDates||'').split(',').map(function(x){return x.trim()}).filter(function(x){return x!==''});
+      var targets=parseDates(st);
       if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
       var now=syncedNow();
       var testM=now.getMinutes()+1;
@@ -525,7 +521,7 @@ function initTimeTable(){
 
     document.getElementById('m-cancel').onclick=function(){
       var st=gs();
-      var targets=(st.targetDates||'').split(',').map(function(x){return x.trim()}).filter(function(x){return x!==''});
+      var targets=parseDates(st);
       if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
       startJob('cancel',targets,st);
     };
@@ -539,6 +535,6 @@ function initTimeTable(){
 
   }
 
-  console.log('[매크로 v15] 시간표 초기화 완료, 슬롯 '+scanSlots().length+'개');
+  console.log('[매크로 v17] 시간표 초기화 완료, 슬롯 '+scanSlots().length+'개');
 }
 })();
