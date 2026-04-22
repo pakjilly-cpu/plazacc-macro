@@ -1,4 +1,4 @@
-// 플라자CC 매크로 v18 - 5대 버그 수정 (달력경유네비게이션, job잔류, cmd잔류, 날짜정규화, watchdog)
+// 플라자CC 매크로 v19 - 새로고침 버그 수정 (input[type=image] 셀렉터 + 리로드 생존)
 (function(){
 'use strict';
 
@@ -147,11 +147,33 @@ function initCalendar(){
     return false;
   }
   function clickRefresh(){
-    var btns=document.querySelectorAll('a, button');
-    for(var i=0;i<btns.length;i++){
-      var t=btns[i].textContent.trim();var img=btns[i].querySelector('img');var alt=img?img.getAttribute('alt')||'':'';
-      if(t==='새로고침'||alt==='새로고침'){btns[i].click();console.log('[매크로] 새로고침');return;}
+    // v19: input[type=image] 포함, 자체 alt 속성 직접 검사, fallback은 location.reload()
+    var cands=document.querySelectorAll('input[type="image"], a, button, img');
+    for(var i=0;i<cands.length;i++){
+      var el=cands[i];
+      var selfAlt=el.getAttribute('alt')||'';
+      if(selfAlt.indexOf('새로고침')>=0){
+        var target=el.tagName==='IMG'?(el.closest('a,button')||el):el;
+        target.click();
+        console.log('[매크로] 새로고침 클릭 (tag='+target.tagName+', alt='+selfAlt+')');
+        return true;
+      }
+      var childImg=el.querySelector&&el.querySelector('img');
+      if(childImg&&(childImg.getAttribute('alt')||'').indexOf('새로고침')>=0){
+        el.click();
+        console.log('[매크로] 새로고침 클릭 (자식img alt)');
+        return true;
+      }
+      var t=(el.textContent||'').trim();
+      if(t==='새로고침'){
+        el.click();
+        console.log('[매크로] 새로고침 클릭 (텍스트)');
+        return true;
+      }
     }
+    console.log('[매크로] 새로고침 버튼 못찾음 → location.reload() fallback');
+    window.location.reload();
+    return false;
   }
 
   // 100ms 간격으로 명령 체크 (빠른 반응)
@@ -169,14 +191,27 @@ function initCalendar(){
     }
 
     if(cmd.refreshAndClick){
+      // v19: 새로고침은 location.reload()라서 JS 컨텍스트가 죽음
+      // → 클릭할 날짜를 clickAfterReload로 남기고, 리로드 후 폴링이 이어받음
       var d2=cmd.refreshAndClick;
-      setCmd({clicking:true});
+      setCmd({clickAfterReload:d2, clickAfterReloadStart:_now()});
       clickRefresh();
-      (function waitClick(n){
-        if(clickDate(d2)){setCmd({});return;}
-        if(n<50)setTimeout(function(){waitClick(n+1);},100);
-        else setCmd({});
-      })(0);
+      return;
+    }
+
+    if(cmd.clickAfterReload){
+      // v19: 리로드 직후 대기중인 날짜 클릭 (DOM에 나타나면 즉시)
+      var d3=cmd.clickAfterReload;
+      var ts=cmd.clickAfterReloadStart||_now();
+      if((_now()-ts) > 20000){
+        console.log('[매크로:달력] clickAfterReload 20초 타임아웃, 포기');
+        setCmd({});
+        return;
+      }
+      if(clickDate(d3)){
+        console.log('[매크로:달력] 리로드 후 날짜 '+d3+' 클릭 성공');
+        setCmd({});
+      }
       return;
     }
 
@@ -395,7 +430,7 @@ function initTimeTable(){
     p.id='plazacc-macro-panel';
     p.style.cssText='position:fixed;top:5px;right:5px;width:320px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;max-height:95vh;overflow-y:auto;';
     p.innerHTML=
-      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v18</div>'+
+      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v19</div>'+
       '<div style="padding:12px">'+
       '<div style="text-align:center;font-size:22px;font-weight:bold;color:#2d6a4f;font-family:monospace" id="m-clock">--:--:--</div>'+
       '<div style="text-align:center;font-size:11px;color:#999;margin-top:2px" id="m-sync">시간 보정 중...</div>'+
@@ -535,6 +570,6 @@ function initTimeTable(){
 
   }
 
-  console.log('[매크로 v17] 시간표 초기화 완료, 슬롯 '+scanSlots().length+'개');
+  console.log('[매크로 v19] 시간표 초기화 완료, 슬롯 '+scanSlots().length+'개');
 }
 })();
