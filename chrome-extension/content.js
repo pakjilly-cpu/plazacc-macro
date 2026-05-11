@@ -1,4 +1,4 @@
-// 플라자CC 매크로 v19 - 새로고침 버그 수정 (input[type=image] 셀렉터 + 리로드 생존)
+// 플라자CC 매크로 v21 - 예약 클릭 보강 + 목표 날짜 안전장치
 (function(){
 'use strict';
 
@@ -114,9 +114,31 @@ setInterval(function(){
 
 // ===== 공용 스토리지 =====
 function load(){try{var v=JSON.parse(localStorage.getItem('plazacc-s'));return(v&&typeof v==='object')?v:{};}catch(e){return{};}}
-function save(s){if(s&&typeof s==='object')try{localStorage.setItem('plazacc-s',JSON.stringify(s));}catch(e){}}
+function save(s){if(s&&typeof s==='object')try{
+  var old={};try{old=JSON.parse(localStorage.getItem('plazacc-s'))||{};}catch(e){}
+  if((s.targetDates||'').trim()){
+    if(s.targetDates!==old.targetDates||!old.targetDatesSavedAt)s.targetDatesSavedAt=_now();
+    else s.targetDatesSavedAt=old.targetDatesSavedAt;
+  }else{
+    delete s.targetDatesSavedAt;
+  }
+  localStorage.setItem('plazacc-s',JSON.stringify(s));
+}catch(e){}}
 function defaults(){return{timeFrom:'10',timeTo:'14',course:'T-OUT-first',targetDates:'',autoRefresh:true};}
-function loadWithDefaults(){var d=defaults();var s=load();for(var k in d){if(s[k]===undefined)s[k]=d[k];}return s;}
+function loadWithDefaults(){
+  var d=defaults();var s=load();
+  if((s.targetDates||'').trim()){
+    var ts=parseInt(s.targetDatesSavedAt||'0',10);
+    if(!ts||(_now()-ts)>7*24*60*60*1000){
+      console.log('[매크로] 오래된 목표 날짜 자동 초기화: '+s.targetDates);
+      s.targetDates='';
+      delete s.targetDatesSavedAt;
+      save(s);
+    }
+  }
+  for(var k in d){if(s[k]===undefined)s[k]=d[k];}
+  return s;
+}
 
 // 작업 상태
 function getJob(){try{return JSON.parse(localStorage.getItem('plazacc-job'))||{};}catch(e){return{};}}
@@ -258,7 +280,121 @@ function initTimeTable(){
     return f;
   }
   function beepSuccess(){try{var c=new(window.AudioContext||window.webkitAudioContext)();[0,0.15,0.3,0.45,0.6].forEach(function(d){var o=c.createOscillator();o.connect(c.destination);o.frequency.value=d<0.3?880:1100;o.start(c.currentTime+d);o.stop(c.currentTime+d+0.1);});}catch(e){}}
+  function beepWarn(){try{var c=new(window.AudioContext||window.webkitAudioContext)();[0,0.18,0.36].forEach(function(d){var o=c.createOscillator();o.connect(c.destination);o.frequency.value=330;o.start(c.currentTime+d);o.stop(c.currentTime+d+0.12);});}catch(e){}}
   function timeOptions(sel){var h='';for(var i=6;i<=19;i++){var v=String(i);h+='<option value="'+v+'"'+(v===sel?' selected':'')+'>'+String(i).padStart(2,'0')+'시</option>';}return h;}
+  function getPopupSignals(){
+    var sels=[
+      '.modal','.popup','.dialog','.layerPopup','.layer_popup','.pop_wrap','.popWrap',
+      '[class*="modal"]','[class*="popup"]','[class*="Popup"]','[class*="dialog"]','[class*="Dialog"]',
+      '[id*="popup"]','[id*="Popup"]','[id*="dialog"]','[role="dialog"]'
+    ];
+    var nodes=[];
+    for(var i=0;i<sels.length;i++){
+      var found=document.querySelectorAll(sels[i]);
+      for(var j=0;j<found.length;j++)nodes.push(found[j]);
+    }
+    var visible=0;
+    for(var k=0;k<nodes.length;k++){
+      var el=nodes[k], r=null, cs=null;
+      try{r=el.getBoundingClientRect();cs=getComputedStyle(el);}catch(e){}
+      if(r&&cs&&r.width>0&&r.height>0&&cs.display!=='none'&&cs.visibility!=='hidden'&&cs.opacity!=='0')visible++;
+    }
+    return {total:nodes.length, visible:visible};
+  }
+  function parseConfirmArgs(href){
+    var m=(href||'').match(/confirmPopup\s*\(([\s\S]*)\)/);
+    if(!m)return null;
+    var s=m[1], args=[], cur='', q=null, esc=false;
+    for(var i=0;i<s.length;i++){
+      var ch=s.charAt(i);
+      if(esc){cur+=ch;esc=false;continue;}
+      if(ch==='\\'){esc=true;continue;}
+      if(q){
+        if(ch===q){args.push(cur);cur='';q=null;}
+        else cur+=ch;
+        continue;
+      }
+      if(ch==="'"||ch==='"'){q=ch;cur='';continue;}
+      if(ch===')'||ch===';')break;
+    }
+    return args.length>=5?args:null;
+  }
+  function callConfirmPopupDirect(t){
+    var args=parseConfirmArgs(t.element.getAttribute('href')||'');
+    if(!args){
+      console.log('[매크로] confirmPopup 인자 파싱 실패');
+      return false;
+    }
+    if(typeof window.confirmPopup!=='function'){
+      console.log('[매크로] window.confirmPopup 함수 없음');
+      return false;
+    }
+    console.log('[매크로] confirmPopup 직접 호출 시도: '+t.time+' '+t.course+' id='+t.id+' args='+args.length);
+    try{
+      window.confirmPopup.apply(window,args);
+      return true;
+    }catch(e){
+      console.log('[매크로] confirmPopup 직접 호출 오류: '+(e&&e.message?e.message:e));
+      return false;
+    }
+  }
+  function reserveSlot(t,st,dateLabel){
+    buildUI(st);
+    var el=document.getElementById('m-status');
+    if(el)el.innerHTML='<b style="color:#2d6a4f;font-size:16px">예약 클릭 시도 중</b><br>'+dateLabel+' '+t.time+' '+cn(t.course)+'<br>팝업이 뜨면 확인을 눌러주세요.';
+
+    setCmd({});
+    setJob({reserving:true,reserveStartedAt:_now(),reserveTime:t.time,reserveCourse:t.course,reserveId:t.id});
+
+    var before=getPopupSignals();
+    var opened=false;
+    var oldOpen=window.open;
+    try{
+      window.open=function(){
+        opened=true;
+        console.log('[매크로] window.open 호출 감지');
+        return oldOpen.apply(window,arguments);
+      };
+    }catch(e){}
+
+    console.log('[매크로] 예약 클릭 시도: '+dateLabel+' '+t.time+' '+t.course+' id='+t.id+' popupBefore='+before.visible+'/'+before.total);
+    try{
+      t.element.click();
+    }catch(e){
+      console.log('[매크로] 예약 click 오류: '+(e&&e.message?e.message:e));
+    }
+
+    setTimeout(function(){
+      var mid=getPopupSignals();
+      if(opened||mid.visible>before.visible){
+        try{window.open=oldOpen;}catch(e){}
+        clearJob();setCmd({});
+        console.log('[매크로] 예약 팝업 감지 성공 (1차 click)');
+        if(el)el.innerHTML='<b style="color:#2d6a4f;font-size:16px">예약 팝업 감지됨</b><br>'+dateLabel+' '+t.time+' '+cn(t.course)+'<br>팝업에서 확인을 눌러주세요!';
+        beepSuccess();
+        return;
+      }
+
+      console.log('[매크로] 1차 click 후 팝업 신호 없음 → confirmPopup fallback');
+      callConfirmPopupDirect(t);
+
+      setTimeout(function(){
+        var after=getPopupSignals();
+        try{window.open=oldOpen;}catch(e){}
+        if(opened||after.visible>before.visible){
+          clearJob();setCmd({});
+          console.log('[매크로] 예약 팝업 감지 성공 (fallback)');
+          if(el)el.innerHTML='<b style="color:#2d6a4f;font-size:16px">예약 팝업 감지됨</b><br>'+dateLabel+' '+t.time+' '+cn(t.course)+'<br>팝업에서 확인을 눌러주세요!';
+          beepSuccess();
+          return;
+        }
+
+        console.log('[매크로] 예약 팝업 감지 실패 - 작업 유지, 수동 확인 필요');
+        if(el)el.innerHTML='<b style="color:#d32f2f;font-size:16px">예약 클릭 확인 실패</b><br>'+dateLabel+' '+t.time+' '+cn(t.course)+'<br>팝업이 안 떴으면 같은 슬롯을 직접 눌러주세요.<br><span style="font-size:11px;color:#777">콘솔 로그: 예약 팝업 감지 실패</span>';
+        beepWarn();
+      },1000);
+    },250);
+  }
 
   // === 페이지 로드 시: 진행중인 작업 확인 ===
   var job=getJob();
@@ -271,16 +407,10 @@ function initTimeTable(){
     var dateLabel='';
     if(slots.length>0&&slots[0].date)dateLabel=fmtDate(slots[0].date);
 
-    // 매칭 발견 → 즉시 클릭 (지연 없음!)
+    // 매칭 발견 → 예약 클릭. 클릭 성공 전 clearJob 금지.
     if(job.autoClick&&matched.length>0){
       var t=matched[0];
-      clearJob();
-      setCmd({});
-      buildUI(st);
-      var el=document.getElementById('m-status');
-      if(el)el.innerHTML='<b style="color:#2d6a4f;font-size:16px">예약 클릭!</b><br>'+dateLabel+' '+t.time+' '+cn(t.course)+'<br>팝업에서 확인을 눌러주세요!';
-      t.element.click();
-      beepSuccess();
+      reserveSlot(t,st,dateLabel);
       return;
     }
 
@@ -404,7 +534,7 @@ function initTimeTable(){
           // 5초 내 시간표 리로드 안 되면 재시도
           setTimeout(function(){
             var j2=getJob();
-            if(j2.active&&j2.auto10started){
+            if(j2.active&&j2.auto10started&&!j2.reserving){
               console.log('[매크로] 달력 네비게이션 타임아웃, retry');
               setCmd({refreshAndClick:dates[0]});
             }
@@ -430,13 +560,14 @@ function initTimeTable(){
     p.id='plazacc-macro-panel';
     p.style.cssText='position:fixed;top:5px;right:5px;width:320px;background:#fff;border:3px solid #2d6a4f;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:2147483647;font-family:sans-serif;font-size:13px;padding:0;max-height:95vh;overflow-y:auto;';
     p.innerHTML=
-      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v19</div>'+
+      '<div style="background:#2d6a4f;color:#fff;padding:10px 14px;border-radius:9px 9px 0 0;font-size:15px;font-weight:bold;cursor:move" id="m-header">플라자CC 매크로 v21</div>'+
       '<div style="padding:12px">'+
       '<div style="text-align:center;font-size:22px;font-weight:bold;color:#2d6a4f;font-family:monospace" id="m-clock">--:--:--</div>'+
       '<div style="text-align:center;font-size:11px;color:#999;margin-top:2px" id="m-sync">시간 보정 중...</div>'+
       '<div style="margin:8px 0;padding:8px;background:#fff3e0;border-radius:6px;border:1px solid #ffcc02">'+
       '<b>목표 날짜</b> <span style="color:#888;font-size:11px">(10시자동/취소감시용)</span><br>'+
       '<input type="text" id="m-dates" value="'+(s.targetDates||'')+'" placeholder="예: 13,14,15" style="padding:6px;font-size:15px;width:95%;margin-top:4px;border:1px solid #ccc;border-radius:4px">'+
+      '<div id="m-date-preview" style="margin-top:4px;font-size:11px;color:#d32f2f;line-height:1.4"></div>'+
       '<div style="margin-top:4px"><label><input type="checkbox" id="m-autorefresh"'+(s.autoRefresh!==false?' checked':'')+'>10시 달력 자동 새로고침</label></div>'+
       '</div>'+
       '<div style="margin:8px 0"><b>시간 범위</b><br>'+
@@ -472,11 +603,22 @@ function initTimeTable(){
     document.onmousemove=function(e){if(!dragging)return;p.style.left=(e.clientX-dx)+'px';p.style.top=(e.clientY-dy)+'px';p.style.right='auto';};
     document.onmouseup=function(){dragging=false;};
 
-    function gs(){return{timeFrom:document.getElementById('m-from').value,timeTo:document.getElementById('m-to').value,targetDates:document.getElementById('m-dates').value,autoRefresh:document.getElementById('m-autorefresh').checked};}
+    function gs(){return{timeFrom:document.getElementById('m-from').value,timeTo:document.getElementById('m-to').value,targetDates:document.getElementById('m-dates').value.trim(),autoRefresh:document.getElementById('m-autorefresh').checked};}
     function ss(html){document.getElementById('m-status').innerHTML=html;}
     function showBtns(show){
       ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){document.getElementById(id).style.display=show?'':'none';});
       document.getElementById('m-stop').style.display=show?'none':'block';
+    }
+    function dateLabelList(dates){return dates.map(function(d){return d+'일';}).join(', ');}
+    function refreshDatePreview(){
+      var st=gs(), dates=parseDates(st), el=document.getElementById('m-date-preview');
+      if(!el)return;
+      if(dates.length===0){el.textContent='매주 월요일마다 이번 예약 날짜를 새로 입력하세요.';return;}
+      el.textContent='이번 실행 목표: '+dateLabelList(dates)+' - 맞는지 확인 후 실행하세요.';
+    }
+    function confirmTargetDates(mode,dates){
+      var modeLabel={'auto10':'10시자동','cancel':'취소감시'}[mode]||mode;
+      return window.confirm(modeLabel+' 실행 전 확인\n\n목표 날짜: '+dateLabelList(dates)+'\n\n이번 주 예약할 날짜가 맞습니까?\n지난주 날짜가 남아있으면 취소를 누르고 다시 입력하세요.');
     }
 
     function startJob(mode,dates,st,triggerH,triggerM){
@@ -535,11 +677,14 @@ function initTimeTable(){
     function parseDates(st){
       return(st.targetDates||'').split(',').map(function(x){var n=parseInt(x.trim(),10);return isNaN(n)?'':String(n);}).filter(function(x){return x!=='';});
     }
+    document.getElementById('m-dates').oninput=refreshDatePreview;
+    refreshDatePreview();
 
     document.getElementById('m-auto10').onclick=function(){
       var st=gs();
       var targets=parseDates(st);
       if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
+      if(!confirmTargetDates('auto10',targets))return;
       startJob('auto10',targets,st);
     };
 
@@ -547,6 +692,7 @@ function initTimeTable(){
       var st=gs();
       var targets=parseDates(st);
       if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
+      if(!confirmTargetDates('auto10',targets))return;
       var now=syncedNow();
       var testM=now.getMinutes()+1;
       var testH=now.getHours();
@@ -558,6 +704,7 @@ function initTimeTable(){
       var st=gs();
       var targets=parseDates(st);
       if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
+      if(!confirmTargetDates('cancel',targets))return;
       startJob('cancel',targets,st);
     };
 
@@ -570,6 +717,6 @@ function initTimeTable(){
 
   }
 
-  console.log('[매크로 v19] 시간표 초기화 완료, 슬롯 '+scanSlots().length+'개');
+  console.log('[매크로 v21] 시간표 초기화 완료, 슬롯 '+scanSlots().length+'개');
 }
 })();
