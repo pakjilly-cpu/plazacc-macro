@@ -28,7 +28,7 @@ main.do (www.plazacc.co.kr)
 ```
 
 - **cross-origin 문제**: 최상위는 `plazacc.co.kr`, 예약 영역은 `booking.hanwharesort.co.kr`. 서로 다른 도메인이라 상위 프레임에서 하위 iframe DOM에 접근 불가.
-- **같은 도메인 영역**: `serviceF02`(달력)와 `serviceS01`(시간표)은 둘 다 `booking.hanwharesort.co.kr` → 같은 origin이므로 localStorage 공유 가능.
+- **같은 도메인 영역**: `serviceF02`(달력)와 `serviceS01`(시간표)은 둘 다 `booking.hanwharesort.co.kr` → 같은 탭의 sessionStorage 공유 가능.
 
 ### 시간표 DOM 구조
 
@@ -77,21 +77,21 @@ main.do (www.plazacc.co.kr)
 2. **CSP inline script 차단**: `ISOLATED` world에서 동적으로 `<script>` 태그를 삽입하는 우회 방법도 CSP가 차단함.
 3. **`MAIN` world**: 페이지와 같은 JS 실행 환경. `confirmPopup`이 `window` 스코프에 있으므로 `.click()` 시 정상 호출됨.
 
-### localStorage 기반 iframe 간 통신
+### 탭별 sessionStorage 기반 iframe 간 통신
 
 달력 iframe과 시간표 iframe은 같은 도메인(`booking.hanwharesort.co.kr`)이지만, 서로 다른 iframe이라 직접 함수 호출이나 이벤트 전달이 안 된다. 해결:
 
 ```
-시간표(serviceS01) → localStorage에 명령 기록 → 달력(serviceF02) 100ms 폴링으로 읽기 → 실행
+시간표(serviceS01) → sessionStorage에 명령 기록 → 달력(serviceF02) 100ms 폴링으로 읽기 → 실행
 ```
 
-세 가지 localStorage 키 사용:
+설정은 localStorage, 실행 상태와 명령은 탭별 sessionStorage를 사용한다:
 
-| 키 | 용도 |
+| 키 | 저장소 / 용도 |
 |----|------|
-| `plazacc-s` | 사용자 설정 (시간 범위, 목표 날짜 등) |
-| `plazacc-job` | 작업 상태 (모드, 진행 인덱스, 자동클릭 여부 등) |
-| `plazacc-cmd` | 달력 명령 (날짜 클릭, 새로고침, 날짜 목록 조회) |
+| `plazacc-s` | localStorage / 사용자 설정 (시간 범위, 목표 날짜 등) |
+| `plazacc-job` | sessionStorage / 이 탭의 작업 상태와 실행 phase |
+| `plazacc-cmd` | sessionStorage / 이 탭의 달력 명령과 acknowledgement |
 
 ### 페이지 감지 폴링
 
@@ -113,14 +113,15 @@ main.do (www.plazacc.co.kr)
 
 ## 4. 핵심 설계 결정과 이유
 
-### (1) localStorage 통신을 선택한 이유
+### (1) sessionStorage 통신을 선택한 이유
 
 - **조건**: 달력(`serviceF02`)과 시간표(`serviceS01`)는 같은 도메인
 - **대안 비교**:
   - `postMessage`: 부모 iframe 참조가 필요한데, cross-origin 상위 프레임 때문에 라우팅이 복잡
   - `BroadcastChannel`: 동일 origin 내 통신 가능하지만, 페이지 새로고침 시 채널이 끊김
-  - `localStorage`: 새로고침해도 유지, 단순 read/write, 양쪽 프레임에서 접근 가능
-- **결론**: localStorage가 가장 단순하고 안정적
+  - `localStorage`: 새로고침에는 강하지만 다른 예약 탭까지 같은 job/cmd를 소비하여 중복 실행 위험
+  - `sessionStorage`: 새로고침과 같은 탭의 iframe 사이에서는 유지되고, 다른 탭과는 분리
+- **결론**: v22부터 설정만 localStorage에 두고 job/cmd는 sessionStorage로 분리한다.
 
 ### (2) 폴링 방식 선택 (100ms 간격)
 
@@ -172,7 +173,8 @@ var courseOrder = {'T-OUT':0, 'T-IN':1, 'L-OUT':2, 'L-IN':3};
 | v3 | Tampermonkey v2 + 북마클릿 시도 | 회사 크롬 정책으로 Tampermonkey 실패 |
 | v10 | **Chrome Extension 전환**, localStorage 기반 통신 | `chrome-extension/` 디렉토리 |
 | v11 | detectPage 폴링, 슬롯 대기 폴링 추가 | document_idle 타이밍 문제 해결 |
-| v12 | 속도 최적화(200→100ms), 취소감시 reload, `world:MAIN`, 코스 우선순위 고정 | 현재 버전 |
+| v12 | 속도 최적화(200→100ms), 취소감시 reload, `world:MAIN`, 코스 우선순위 고정 | 과거 버전 |
+| v22 / 확장 4.0.0 | 절대 실행시각·상태 머신, service worker 영구 알람, 달력 클릭 다중 셀렉터, 0.45초 직접 이동 fallback, 20초 서버 지연 복구, 중복 클릭 잠금 | 현재 버전 |
 
 ---
 
@@ -255,6 +257,27 @@ Playwright로 실제 사이트에서 측정한 결과:
 ```
 
 **예상 총 소요: ~0.3-0.5초** (수동 클릭 대비 3-5초 단축)
+
+---
+
+## 8. 2026-07-13 장애와 v22 재발 방지
+
+Chrome History와 booking origin의 localStorage 기록을 함께 확인한 결과, 10시 타이머는 `10:00:00.477`에 정상 발동했고 `serviceF02` 달력 reload도 실행됐다. 실패 지점은 그 다음 단계였다.
+
+- `clickDate()`가 `a[href="#none"]`만 찾아 실제 날짜 요소를 발견하지 못했다.
+- `plazacc-cmd`에는 `clickAfterReload:"6"`이 남았지만 시간표 `serviceS01`은 목표 날짜로 한 번도 이동하지 않았다.
+- 기존 watchdog은 같은 명령만 다시 기록하거나 현재 프레임을 reload하여 실패 상태를 반복했다.
+- 별도로, 10시 전 대기 작업이 있는 상태에서 시간표가 reload되면 `auto10started`를 확인하지 않고 기존 슬롯을 즉시 클릭하는 결함도 확인됐다.
+
+v22에서는 다음 불변식을 코드와 회귀 테스트로 유지한다.
+
+1. `phase=armed`인 작업은 페이지가 몇 번 reload되어도 목표 시각 전에 스캔·클릭하지 않는다.
+2. 예약 가능한 링크가 0개여도 `serviceS01` URL이면 시간표 복구 로직을 초기화한다.
+3. 달력 날짜 요소는 `#none`, `#none;`, `javascript:`, `onclick`, 날짜 선택 이미지 형태를 모두 탐색한다.
+4. 달력 명령 후 0.45초 안에 시간표가 이동하지 않으면 `targetDate` URL 직접 이동으로 복구한다.
+5. 목표 날짜와 현재 시간표 날짜가 다르면 슬롯이 보여도 클릭하지 않는다.
+6. 서버 반영 지연은 날짜별 최대 20초까지 다시 조회한다.
+7. 페이지 타이머와 MV3 `chrome.alarms`가 함께 감시하며, 브라우저 재시작 시 저장된 알람을 복원한다.
 
 ---
 

@@ -1,9 +1,24 @@
 {
   "manifest_version": 3,
   "name": "플라자CC 예약 매크로",
-  "version": "3.4",
-  "description": "플라자CC 골프장 예약 자동화",
+  "version": "4.0.0",
+  "description": "플라자CC 골프장 예약 자동화 (영구 알람·자동 복구)",
+  "permissions": ["alarms", "storage"],
+  "host_permissions": [
+    "*://plazacc.co.kr/*",
+    "*://*.plazacc.co.kr/*",
+    "*://booking.hanwharesort.co.kr/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
+    {
+      "matches": ["*://booking.hanwharesort.co.kr/*"],
+      "js": ["scheduler-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    },
     {
       "matches": ["*://booking.hanwharesort.co.kr/*"],
       "js": ["content.js"],
