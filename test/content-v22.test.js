@@ -149,6 +149,7 @@ function createHarness({
   sessionStorage,
   slots = [],
   calendarElements = [],
+  confirmResult = true,
   actionLog,
 }) {
   const clock = { now };
@@ -261,7 +262,7 @@ function createHarness({
   const window = {
     location,
     open() {},
-    confirm() { return true; },
+    confirm() { return confirmResult; },
     confirmPopup(...args) {
       log.confirmPopupCalls.push({ args, at: clock.now });
     },
@@ -328,7 +329,7 @@ function createHarness({
 
   vm.runInNewContext(CONTENT_SOURCE, sandbox, { filename: CONTENT_PATH });
 
-  return { clock, scheduler, storage, log, location, document };
+  return { clock, scheduler, storage, sessionStorage, log, location, document, window };
 }
 
 function autoJob(overrides = {}) {
@@ -357,6 +358,12 @@ function autoJob(overrides = {}) {
 
 function storageWithJob(job) {
   return new MemoryStorage({ 'plazacc-job': JSON.stringify(job) });
+}
+
+function setForm(harness, { dates = '5', from = '10', to = '14' } = {}) {
+  harness.document.getElementById('m-dates').value = dates;
+  harness.document.getElementById('m-from').value = from;
+  harness.document.getElementById('m-to').value = to;
 }
 
 test('09:59 persisted armed job survives repeated timetable reloads without clicking a matching slot', () => {
@@ -646,4 +653,246 @@ test('a two-month calendar clicks only the day belonging to the configured targe
   assert.equal(harness.log.calendarClicks.length, 1);
   assert.equal(harness.log.calendarClicks[0].index, 1);
   assert.equal(storage.json('plazacc-cmd').dateClicked, '6');
+});
+
+test('scan button filters the selected time range and keeps course priority ordering', () => {
+  const now = new Date(2026, 5, 1, 9, 50, 0, 0).getTime();
+  const storage = new MemoryStorage();
+  const harness = createHarness({
+    now,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+    storage,
+    slots: [
+      { date: '20260605', id: 'early-outside', time: '0950', course: 'T-OUT' },
+      { date: '20260605', id: 't-in', time: '1030', course: 'T-IN' },
+      { date: '20260605', id: 't-out', time: '1100', course: 'T-OUT' },
+    ],
+  });
+  setForm(harness, { from: '10', to: '12' });
+
+  harness.document.getElementById('m-scan').onclick();
+
+  const status = harness.document.getElementById('m-status').innerHTML;
+  assert.match(status, /전체: 3개/);
+  assert.match(status, /매칭: <b[^>]*>2개/);
+  assert.ok(status.indexOf('11:00 타이거OUT') < status.indexOf('10:30 타이거IN'));
+  assert.equal(harness.log.slotClicks.length, 0);
+  assert.equal(storage.json('plazacc-s').timeFrom, '10');
+  assert.equal(storage.getItem('plazacc-job'), null);
+});
+
+test('all action buttons reject reversed time ranges and impossible month dates', () => {
+  const now = new Date(2026, 5, 1, 9, 50, 0, 0).getTime();
+  for (const buttonId of ['m-scan', 'm-auto10', 'm-test', 'm-cancel']) {
+    const storage = new MemoryStorage();
+    const session = new MemoryStorage();
+    const harness = createHarness({
+      now,
+      url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+      storage,
+      sessionStorage: session,
+      slots: [],
+    });
+    setForm(harness, { dates: '5', from: '14', to: '10' });
+    harness.document.getElementById(buttonId).onclick();
+    assert.match(harness.document.getElementById('m-status').innerHTML, /시간 범위를 확인/);
+    assert.equal(session.getItem('plazacc-job'), null);
+  }
+
+  for (const buttonId of ['m-auto10', 'm-test', 'm-cancel']) {
+    const storage = new MemoryStorage();
+    const session = new MemoryStorage();
+    const harness = createHarness({
+      now,
+      url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+      storage,
+      sessionStorage: session,
+    });
+    setForm(harness, { dates: '31', from: '10', to: '14' });
+    harness.document.getElementById(buttonId).onclick();
+    assert.match(harness.document.getElementById('m-status').innerHTML, /6월에 존재하는 날짜.*1~30일/);
+    assert.equal(session.getItem('plazacc-job'), null);
+  }
+});
+
+test('one-minute test arms the same persistent scheduler and stop cancels every pending action', () => {
+  const now = new Date(2026, 5, 1, 9, 58, 30, 0).getTime();
+  const local = new MemoryStorage();
+  const session = new MemoryStorage();
+  const harness = createHarness({
+    now,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+    storage: local,
+    sessionStorage: session,
+  });
+  setForm(harness, { dates: '5', from: '10', to: '14' });
+
+  harness.document.getElementById('m-test').onclick();
+
+  const job = session.json('plazacc-job');
+  assert.equal(job.active, true);
+  assert.equal(job.mode, 'auto10');
+  assert.equal(job.phase, 'armed');
+  assert.equal(job.targetYm, '202606');
+  assert.equal(job.triggerH, 9);
+  assert.equal(job.triggerM, 59);
+  assert.equal(job.targetAt, new Date(2026, 5, 1, 9, 59, 0, 0).getTime());
+  assert.equal(harness.document.getElementById('m-stop').style.display, 'block');
+  assert.equal(harness.document.getElementById('m-test').style.display, 'none');
+  assert.equal(harness.log.extensionEvents.some((event) => JSON.parse(event.detail).type === 'SCHEDULE_AUTO10'), true);
+
+  harness.document.getElementById('m-stop').onclick();
+  harness.scheduler.advance(90_000);
+
+  assert.equal(session.getItem('plazacc-job'), null);
+  assert.equal(session.getItem('plazacc-cmd'), null);
+  assert.equal(harness.log.reloads, 0);
+  assert.equal(harness.log.slotClicks.length, 0);
+  assert.equal(harness.document.getElementById('m-status').innerHTML, '중지됨');
+  assert.equal(harness.log.extensionEvents.some((event) => JSON.parse(event.detail).type === 'CANCEL_SCHEDULE'), true);
+});
+
+test('one-minute test schedules midnight on the following date', () => {
+  const now = new Date(2026, 5, 1, 23, 59, 30, 0).getTime();
+  const local = new MemoryStorage();
+  const session = new MemoryStorage();
+  const harness = createHarness({
+    now,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+    storage: local,
+    sessionStorage: session,
+  });
+  setForm(harness, { dates: '5' });
+  harness.document.getElementById('m-test').onclick();
+
+  const job = session.json('plazacc-job');
+  assert.equal(job.triggerH, 0);
+  assert.equal(job.triggerM, 0);
+  assert.equal(job.targetAt, new Date(2026, 5, 2, 0, 0, 0, 0).getTime());
+});
+
+test('cancel-watch stop prevents both initial and repeating reload timers', () => {
+  const now = new Date(2026, 5, 1, 12, 0, 0, 0).getTime();
+  const local = new MemoryStorage();
+  const session = new MemoryStorage();
+  const harness = createHarness({
+    now,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+    storage: local,
+    sessionStorage: session,
+  });
+  setForm(harness, { dates: '5' });
+  harness.document.getElementById('m-cancel').onclick();
+  assert.equal(session.json('plazacc-job').mode, 'cancel');
+  harness.document.getElementById('m-stop').onclick();
+  harness.scheduler.advance(4_000);
+  assert.equal(harness.log.reloads, 0);
+  assert.equal(session.getItem('plazacc-job'), null);
+
+  const loopSession = storageWithJob({
+    ...autoJob(),
+    runId: 'cancel-loop',
+    mode: 'cancel',
+    phase: 'scanning',
+    auto10started: false,
+    dates: ['5'],
+    targetYm: '202606',
+    idx: 0,
+  });
+  const loopHarness = createHarness({
+    now,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+    storage: new MemoryStorage(),
+    sessionStorage: loopSession,
+    slots: [],
+  });
+  loopHarness.document.getElementById('m-stop').onclick();
+  loopHarness.scheduler.advance(4_000);
+  assert.equal(loopHarness.log.reloads, 0);
+  assert.equal(loopSession.getItem('plazacc-job'), null);
+});
+
+test('cancel-watch cycles across multiple target dates without losing its job', () => {
+  const now = new Date(2026, 5, 1, 12, 0, 0, 0).getTime();
+  const session = storageWithJob({
+    ...autoJob(),
+    runId: 'cancel-cycle',
+    mode: 'cancel',
+    phase: 'scanning',
+    auto10started: false,
+    dates: ['5', '6'],
+    targetYm: '202606',
+    idx: 0,
+  });
+  createHarness({
+    now,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+    storage: new MemoryStorage(),
+    sessionStorage: session,
+    slots: [],
+  });
+  assert.equal(session.json('plazacc-job').idx, 1);
+  assert.equal(session.json('plazacc-cmd').refreshAndClick, '6');
+
+  createHarness({
+    now: now + 200,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260606',
+    storage: new MemoryStorage(),
+    sessionStorage: session,
+    slots: [],
+  });
+  assert.equal(session.json('plazacc-job').idx, 0);
+  assert.equal(session.json('plazacc-cmd').refreshAndClick, '5');
+  assert.equal(session.json('plazacc-job').active, true);
+});
+
+test('stop during a reservation attempt cancels the delayed direct-call fallback', () => {
+  const now = new Date(2026, 5, 1, 10, 0, 1, 0).getTime();
+  const targetAt = new Date(2026, 5, 1, 10, 0, 0, 0).getTime();
+  const session = storageWithJob(autoJob({
+    phase: 'triggered',
+    auto10started: true,
+    targetAt,
+    expiresAt: targetAt + 30 * 60 * 1000,
+    dates: ['5'],
+    targetYm: '202606',
+  }));
+  const harness = createHarness({
+    now,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+    storage: new MemoryStorage(),
+    sessionStorage: session,
+    slots: [{ date: '20260605', id: 'no-handler', time: '1030', course: 'T-OUT' }],
+  });
+
+  assert.equal(harness.log.slotClicks.length, 1);
+  assert.equal(harness.document.getElementById('m-scan').style.display, 'none');
+  assert.equal(harness.document.getElementById('m-stop').style.display, 'block');
+  harness.document.getElementById('m-stop').onclick();
+  harness.scheduler.advance(2_000);
+
+  assert.equal(harness.log.confirmPopupCalls.length, 0);
+  assert.equal(session.getItem('plazacc-job'), null);
+  assert.equal(
+    harness.log.console.some(({ args }) => String(args[0]).includes('후속 호출 취소')),
+    true,
+  );
+});
+
+test('declining confirmation leaves auto, test, and cancel actions unarmed', () => {
+  const now = new Date(2026, 5, 1, 9, 50, 0, 0).getTime();
+  for (const buttonId of ['m-auto10', 'm-test', 'm-cancel']) {
+    const session = new MemoryStorage();
+    const harness = createHarness({
+      now,
+      url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260605',
+      storage: new MemoryStorage(),
+      sessionStorage: session,
+      confirmResult: false,
+    });
+    setForm(harness, { dates: '5' });
+    harness.document.getElementById(buttonId).onclick();
+    assert.equal(session.getItem('plazacc-job'), null);
+    assert.equal(harness.log.extensionEvents.length, 0);
+  }
 });

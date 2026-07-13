@@ -1,8 +1,8 @@
-// 플라자CC 매크로 v22 - 영구 스케줄러 + 달력 핸드오프 복구
+// 플라자CC 매크로 v23 - 전체 버튼 검증 + 중지/입력 안전장치
 (function(){
 'use strict';
 
-var MACRO_VERSION='22';
+var MACRO_VERSION='23';
 var AUTO_RECOVERY_MS=30*60*1000;
 var SCAN_RETRY_MS=750;
 var SCAN_RECOVERY_MS=20000;
@@ -592,6 +592,8 @@ function initTimeTable(){
     function releaseAtomicLock(){if(!released&&typeof lockRelease==='function'){released=true;lockRelease();}}
 
     buildUI(st);
+    ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var button=document.getElementById(id);if(button)button.style.display='none';});
+    var reserveStop=document.getElementById('m-stop');if(reserveStop)reserveStop.style.display='block';
     var el=document.getElementById('m-status');
     if(el)el.innerHTML='<b style="color:#2d6a4f;font-size:16px">예약 클릭 시도 중</b><br>'+dateLabel+' '+t.time+' '+cn(t.course)+'<br>팝업이 뜨면 확인을 눌러주세요.';
 
@@ -613,6 +615,7 @@ function initTimeTable(){
       localStorage.setItem('plazacc-last-click',JSON.stringify({clickKey:clickKey,at:_now(),runId:j.runId||''}));
     }catch(e){}
     setJob({phase:'reserving',reserving:true,reserveStartedAt:_now(),reserveTime:t.time,reserveCourse:t.course,reserveId:t.id,clickKey:clickKey});
+    var reserveRunId=j.runId||'';
 
     var before=getPopupSignals();
     var opened=false;
@@ -647,6 +650,12 @@ function initTimeTable(){
     }
 
     setTimeout(function(){
+      var activeAttempt=getJob();
+      if(!activeAttempt.active||activeAttempt.runId!==reserveRunId||activeAttempt.phase!=='reserving'){
+        restoreHooks();releaseAtomicLock();
+        console.log('[매크로] 중지된 예약 시도 - 후속 호출 취소');
+        return;
+      }
       var mid=getPopupSignals();
       if(opened||mid.visible>before.visible){
         restoreHooks();releaseAtomicLock();
@@ -665,6 +674,11 @@ function initTimeTable(){
       }
 
       setTimeout(function(){
+        var latestAttempt=getJob();
+        if(!latestAttempt.active||latestAttempt.runId!==reserveRunId||latestAttempt.phase!=='reserving'){
+          restoreHooks();releaseAtomicLock();
+          return;
+        }
         var after=getPopupSignals();
         restoreHooks();releaseAtomicLock();
         if(opened||after.visible>before.visible){
@@ -695,6 +709,7 @@ function initTimeTable(){
       setJob({targetAt:restoredTarget,expiresAt:restoredExpiry,runId:job.runId||('legacy-'+_now()+'-'+Math.floor(Math.random()*1000000))});job=getJob();
     }
   }
+  if(job.active&&!job.runId){setJob({runId:'legacy-'+_now()+'-'+Math.floor(Math.random()*1000000)});job=getJob();}
   if(job.active&&job.mode==='auto10'&&job.runId)registerBackgroundSchedule(job);
   var autoArmed=job.active&&job.mode==='auto10'&&!job.auto10started&&(job.phase===undefined||job.phase==='armed');
   if(autoArmed){
@@ -803,7 +818,12 @@ function initTimeTable(){
       if(el3)el3.innerHTML='<b style="color:#6a1b9a">취소표 감시</b> '+nextDate+'일 매칭없음, 3초 후 재확인...';
       document.getElementById('m-stop').style.display='block';
       ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
-      setTimeout(function(){ macroReload(); },3000);
+      (function(runId){
+        setTimeout(function(){
+          var latest=getJob();
+          if(latest.active&&latest.runId===runId&&latest.mode==='cancel')macroReload();
+        },3000);
+      })(job.runId);
     }else{
       // 다른 날짜 → 달력에 명령 (refreshAndClick: 새로고침 후 클릭, 재시도 내장)
       issueDateNavigation(nextDate,'next-date');
@@ -1008,7 +1028,10 @@ function initTimeTable(){
         // 취소감시: 현재 페이지가 목표 날짜면 바로 reload, 아니면 달력에 명령
         if(dates[0]===currentDateFromUrl){
           ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중...<br><span style="color:#888;font-size:11px">페이지 이탈 시 자동 중지</span>');
-          setTimeout(function(){ macroReload(); },500);
+          setTimeout(function(){
+            var latest=getJob();
+            if(latest.active&&latest.runId===runId&&latest.mode==='cancel')macroReload();
+          },500);
         }else{
           issueDateNavigation(dates[0],'cancel-start');
           ss('<b style="color:#6a1b9a">취소표 감시 시작</b><br>'+dates[0]+'일 확인 중 (1/'+dates.length+')<br><span style="color:#888;font-size:11px">페이지 이탈 시 자동 중지</span>');
@@ -1022,7 +1045,9 @@ function initTimeTable(){
 
     // 스캔 (수동 테스트)
     document.getElementById('m-scan').onclick=function(){
-      var st=gs();save(st);
+      var st=gs();
+      if(!validateSettings(st))return;
+      save(st);
       var slots=scanSlots();
       var matched=filterAndSort(slots,st);
       var html='<b>전체: '+slots.length+'개</b>, 매칭: <b style="color:#d32f2f">'+matched.length+'개</b><br>';
@@ -1035,28 +1060,62 @@ function initTimeTable(){
     };
 
     // 날짜 입력 파싱: "09"→"9", "13"→"13" (달력 텍스트와 일치시키기 위해 leading zero 제거)
+    function targetMonthMaxDay(){
+      var maxDay=31;
+      if(/^\d{6}$/.test(currentFullDateFromUrl.substring(0,6))){
+        var y=parseInt(currentFullDateFromUrl.substring(0,4),10);
+        var m=parseInt(currentFullDateFromUrl.substring(4,6),10);
+        maxDay=new Date(y,m,0).getDate();
+      }
+      return maxDay;
+    }
     function parseDates(st){
-      var seen={};
+      var seen={},maxDay=targetMonthMaxDay();
       return(st.targetDates||'').split(',').map(function(x){
         x=x.trim();if(!/^\d{1,2}$/.test(x))return'';
-        var n=parseInt(x,10);return n>=1&&n<=31?String(n):'';
+        var n=parseInt(x,10);return n>=1&&n<=maxDay?String(n):'';
       }).filter(function(x){if(!x||seen[x])return false;seen[x]=true;return true;});
+    }
+    function validateSettings(st){
+      var from=parseInt(st.timeFrom,10),to=parseInt(st.timeTo,10);
+      if(isNaN(from)||isNaN(to)||from>=to){
+        ss('<span style="color:red">시간 범위를 확인하세요. 시작 시간은 종료 시간보다 빨라야 합니다.</span>');
+        return false;
+      }
+      return true;
+    }
+    function validateTargets(st,targets){
+      var raw=(st.targetDates||'').split(',').map(function(x){return x.trim();}).filter(function(x){return x!=='';});
+      var maxDay=targetMonthMaxDay();
+      var invalid=raw.some(function(x){
+        if(!/^\d{1,2}$/.test(x))return true;
+        var n=parseInt(x,10);return n<1||n>maxDay;
+      });
+      if(invalid){
+        var month=currentFullDateFromUrl?parseInt(currentFullDateFromUrl.substring(4,6),10)+'월':'현재 월';
+        ss('<span style="color:red">'+month+'에 존재하는 날짜만 입력하세요. (1~'+maxDay+'일)</span>');
+        return false;
+      }
+      if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return false;}
+      return true;
     }
     document.getElementById('m-dates').oninput=refreshDatePreview;
     refreshDatePreview();
 
     document.getElementById('m-auto10').onclick=function(){
       var st=gs();
+      if(!validateSettings(st))return;
       var targets=parseDates(st);
-      if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
+      if(!validateTargets(st,targets))return;
       if(!confirmTargetDates('auto10',targets))return;
       startJob('auto10',targets,st);
     };
 
     document.getElementById('m-test').onclick=function(){
       var st=gs();
+      if(!validateSettings(st))return;
       var targets=parseDates(st);
-      if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
+      if(!validateTargets(st,targets))return;
       if(!confirmTargetDates('auto10',targets))return;
       var now=syncedNow();
       var testM=now.getMinutes()+1;
@@ -1068,8 +1127,9 @@ function initTimeTable(){
 
     document.getElementById('m-cancel').onclick=function(){
       var st=gs();
+      if(!validateSettings(st))return;
       var targets=parseDates(st);
-      if(targets.length===0){ss('<span style="color:red">목표 날짜를 입력하세요!</span>');return;}
+      if(!validateTargets(st,targets))return;
       if(!confirmTargetDates('cancel',targets))return;
       startJob('cancel',targets,st);
     };

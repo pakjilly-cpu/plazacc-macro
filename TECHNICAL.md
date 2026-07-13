@@ -174,7 +174,8 @@ var courseOrder = {'T-OUT':0, 'T-IN':1, 'L-OUT':2, 'L-IN':3};
 | v10 | **Chrome Extension 전환**, localStorage 기반 통신 | `chrome-extension/` 디렉토리 |
 | v11 | detectPage 폴링, 슬롯 대기 폴링 추가 | document_idle 타이밍 문제 해결 |
 | v12 | 속도 최적화(200→100ms), 취소감시 reload, `world:MAIN`, 코스 우선순위 고정 | 과거 버전 |
-| v22 / 확장 4.0.0 | 절대 실행시각·상태 머신, service worker 영구 알람, 달력 클릭 다중 셀렉터, 0.45초 직접 이동 fallback, 20초 서버 지연 복구, 중복 클릭 잠금 | 현재 버전 |
+| v22 / 확장 4.0.0 | 절대 실행시각·상태 머신, service worker 영구 알람, 달력 클릭 다중 셀렉터, 0.45초 직접 이동 fallback, 20초 서버 지연 복구, 중복 클릭 잠금 | 기반 버전 |
+| v23 / 확장 4.0.1 | 전체 버튼 회귀검증, 취소감시·예약 fallback 중지 보장, 시간 범위·월별 날짜 유효성 검사 | 현재 버전 |
 
 ---
 
