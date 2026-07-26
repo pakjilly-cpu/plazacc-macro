@@ -1,11 +1,11 @@
-// 플라자CC 매크로 v23 - 전체 버튼 검증 + 중지/입력 안전장치
+// 플라자CC 매크로 v24 - 날짜별 재조회 4회 제한
 (function(){
 'use strict';
 
-var MACRO_VERSION='23';
+var MACRO_VERSION='24';
 var AUTO_RECOVERY_MS=30*60*1000;
 var SCAN_RETRY_MS=750;
-var SCAN_RECOVERY_MS=20000;
+var MAX_SCAN_RETRIES=4;
 var _runtimeStorage=localStorage;
 try{if(typeof sessionStorage!=='undefined')_runtimeStorage=sessionStorage;}catch(e){}
 try{
@@ -564,7 +564,7 @@ function initTimeTable(){
     }
     var dates=j.dates||[];
     if(!dates.length){clearJob('no-dates');return false;}
-    setJob({auto10started:true,phase:'triggered',targetAt:targetAt,expiresAt:expiresAt,triggeredAt:now.getTime(),triggerSource:source||'timer',retryCount:0,dateRetryStartedAt:0});
+    setJob({auto10started:true,phase:'triggered',targetAt:targetAt,expiresAt:expiresAt,triggeredAt:now.getTime(),triggerSource:source||'timer',retryCount:0});
     emitExtensionEvent('SCHEDULE_FIRED',{runId:j.runId||'',source:source||'timer'});
     console.log('[매크로:시간표] 목표 시각 도달 ('+(source||'timer')+'), '+dates[0]+'일 이동 시작');
     var statusEl=document.getElementById('m-status');
@@ -768,16 +768,15 @@ function initTimeTable(){
       return;
     }
 
-    // auto10: 서버 반영 지연에 대비해 날짜별 최대 20초 동안 재조회한다.
+    // auto10: 최초 확인 후 날짜별 최대 4회만 재조회하고 다음 날짜로 넘어간다.
     if(job.mode==='auto10'){
       var retries=job.retryCount||0;
-      var retryStarted=parseInt(job.dateRetryStartedAt||'0',10)||_now();
-      if((_now()-retryStarted)<SCAN_RECOVERY_MS){
-        setJob({phase:'scanning',retryCount:retries+1,dateRetryStartedAt:retryStarted});
-        console.log('[매크로] auto10 매칭없음 (슬롯:'+slots.length+'/매칭:'+matched.length+'), 재시도 '+(retries+1));
+      if(retries<MAX_SCAN_RETRIES){
+        setJob({phase:'scanning',retryCount:retries+1});
+        console.log('[매크로] auto10 매칭없음 (슬롯:'+slots.length+'/매칭:'+matched.length+'), 재조회 '+(retries+1)+'/'+MAX_SCAN_RETRIES);
         buildUI(st);
         var elR=document.getElementById('m-status');
-        if(elR)elR.innerHTML='<b style="color:#e65100">슬롯 확인 중...</b> 재시도 '+(retries+1)+'<br>현재 슬롯 '+slots.length+'개, 매칭 '+matched.length+'개<br><span style="font-size:11px">서버 지연 시 최대 20초 자동 복구</span>';
+        if(elR)elR.innerHTML='<b style="color:#e65100">슬롯 확인 중...</b> 재조회 '+(retries+1)+'/'+MAX_SCAN_RETRIES+'<br>현재 슬롯 '+slots.length+'개, 매칭 '+matched.length+'개<br><span style="font-size:11px">날짜별 최초 확인 후 최대 4회 재조회</span>';
         document.getElementById('m-stop').style.display='block';
         ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
         setTimeout(function(){
@@ -786,8 +785,8 @@ function initTimeTable(){
         },SCAN_RETRY_MS);
         return;
       }
-      console.log('[매크로] auto10 20초 재시도 소진, 다음 날짜로');
-      setJob({retryCount:0,dateRetryStartedAt:0});
+      console.log('[매크로] auto10 재조회 '+MAX_SCAN_RETRIES+'회 소진, 다음 날짜로');
+      setJob({retryCount:0});
     }
 
     // 매칭 없음 → 다음 단계
@@ -803,7 +802,7 @@ function initTimeTable(){
       clearJob('no-matching-slots');setCmd({});
       buildUI(st);
       var el2=document.getElementById('m-status');
-      if(el2)el2.innerHTML='<span style="color:red">모든 목표 날짜에서 매칭 슬롯을 찾지 못했습니다.</span><br>(각 날짜 최대 20초 재시도 완료)';
+      if(el2)el2.innerHTML='<span style="color:red">모든 목표 날짜에서 매칭 슬롯을 찾지 못했습니다.</span><br>(각 날짜 최초 확인 + 4회 재조회 완료)';
       return;
     }
 
@@ -1013,7 +1012,7 @@ function initTimeTable(){
       }
       var runId='run-'+_now()+'-'+Math.floor(Math.random()*1000000);
       var targetYm=currentFullDateFromUrl?currentFullDateFromUrl.substring(0,6):'';
-      var newJob={active:true,runId:runId,mode:mode,phase:mode==='auto10'?'armed':'scanning',dates:dates,targetYm:targetYm,idx:0,results:[],autoClick:true,settings:st,autoRefresh:true,auto10started:false,triggerH:tH,triggerM:tM,targetAt:targetAt,expiresAt:targetAt+AUTO_RECOVERY_MS,armedAt:now.getTime(),retryCount:0,dateRetryStartedAt:0};
+      var newJob={active:true,runId:runId,mode:mode,phase:mode==='auto10'?'armed':'scanning',dates:dates,targetYm:targetYm,idx:0,results:[],autoClick:true,settings:st,autoRefresh:true,auto10started:false,triggerH:tH,triggerM:tM,targetAt:targetAt,expiresAt:targetAt+AUTO_RECOVERY_MS,armedAt:now.getTime(),retryCount:0};
       replaceJob(newJob);
       if(mode==='auto10'){
         var targetLabel=String(tH).padStart(2,'0')+':'+String(tM).padStart(2,'0');

@@ -351,7 +351,6 @@ function autoJob(overrides = {}) {
       autoRefresh: true,
     },
     retryCount: 0,
-    dateRetryStartedAt: 0,
     ...overrides,
   };
 }
@@ -453,7 +452,6 @@ test('serviceS01 with zero confirmPopup links initializes and keeps the triggere
   assert.equal(jobAfterScan.active, true);
   assert.equal(jobAfterScan.phase, 'scanning');
   assert.equal(jobAfterScan.retryCount, 1);
-  assert.equal(jobAfterScan.dateRetryStartedAt, now);
   assert.ok(harness.scheduler.timeoutDelays().includes(750));
   assert.equal(harness.log.slotClicks.length, 0);
 
@@ -461,6 +459,68 @@ test('serviceS01 with zero confirmPopup links initializes and keeps the triggere
 
   assert.equal(harness.log.reloads, 1);
   assert.equal(storage.json('plazacc-job').active, true);
+});
+
+test('auto10 checks each target once plus four retries, then stops after the final target', () => {
+  const now = new Date(2026, 6, 13, 10, 0, 1, 0).getTime();
+  const targetAt = new Date(2026, 6, 13, 10, 0, 0, 0).getTime();
+  const storage = storageWithJob(autoJob({
+    phase: 'triggered',
+    auto10started: true,
+    targetAt,
+    expiresAt: targetAt + 30 * 60 * 1000,
+    triggeredAt: now - 1000,
+    dates: ['11', '13'],
+    targetYm: '202608',
+  }));
+
+  for (let retry = 1; retry <= 4; retry += 1) {
+    createHarness({
+      now: now + retry,
+      url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260811',
+      storage,
+      slots: [],
+    });
+    const job = storage.json('plazacc-job');
+    assert.equal(job.idx, 0);
+    assert.equal(job.retryCount, retry);
+    assert.equal(job.active, true);
+  }
+
+  createHarness({
+    now: now + 5,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260811',
+    storage,
+    slots: [],
+  });
+  assert.equal(storage.json('plazacc-job').idx, 1);
+  assert.equal(storage.json('plazacc-job').retryCount, 0);
+  assert.equal(storage.json('plazacc-cmd').refreshAndClick, '13');
+
+  for (let retry = 1; retry <= 4; retry += 1) {
+    createHarness({
+      now: now + 5 + retry,
+      url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260813',
+      storage,
+      slots: [],
+    });
+    const job = storage.json('plazacc-job');
+    assert.equal(job.idx, 1);
+    assert.equal(job.retryCount, retry);
+    assert.equal(job.active, true);
+  }
+
+  const finalHarness = createHarness({
+    now: now + 10,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260813',
+    storage,
+    slots: [],
+  });
+  assert.equal(storage.getItem('plazacc-job'), null);
+  assert.match(
+    finalHarness.document.getElementById('m-status').innerHTML,
+    /최초 확인 \+ 4회 재조회 완료/,
+  );
 });
 
 test('an expired triggered job is removed before it can click a stale slot', () => {
