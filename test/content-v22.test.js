@@ -461,7 +461,7 @@ test('serviceS01 with zero confirmPopup links initializes and keeps the triggere
   assert.equal(storage.json('plazacc-job').active, true);
 });
 
-test('auto10 checks each target once plus four retries, then stops after the final target', () => {
+test('auto10 checks every course and date three times in course-first order', () => {
   const now = new Date(2026, 6, 13, 10, 0, 1, 0).getTime();
   const targetAt = new Date(2026, 6, 13, 10, 0, 0, 0).getTime();
   const storage = storageWithJob(autoJob({
@@ -474,53 +474,130 @@ test('auto10 checks each target once plus four retries, then stops after the fin
     targetYm: '202608',
   }));
 
-  for (let retry = 1; retry <= 4; retry += 1) {
-    createHarness({
-      now: now + retry,
-      url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260811',
-      storage,
-      slots: [],
-    });
-    const job = storage.json('plazacc-job');
-    assert.equal(job.idx, 0);
-    assert.equal(job.retryCount, retry);
-    assert.equal(job.active, true);
+  const courses = ['T-OUT', 'T-IN', 'L-OUT', 'L-IN'];
+  const dates = ['11', '13'];
+  let tick = 0;
+  let finalHarness;
+
+  for (let courseIdx = 0; courseIdx < courses.length; courseIdx += 1) {
+    for (let dateIdx = 0; dateIdx < dates.length; dateIdx += 1) {
+      for (let check = 1; check <= 3; check += 1) {
+        tick += 1;
+        finalHarness = createHarness({
+          now: now + tick,
+          url: `https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=202608${dates[dateIdx]}`,
+          storage,
+          slots: [],
+        });
+        const job = storage.json('plazacc-job');
+        if (courseIdx === courses.length - 1 && dateIdx === dates.length - 1 && check === 3) {
+          assert.equal(job, null);
+          continue;
+        }
+        assert.equal(job.active, true);
+        if (check < 3) {
+          assert.equal(job.courseIdx, courseIdx);
+          assert.equal(job.idx, dateIdx);
+          assert.equal(job.retryCount, check);
+        } else {
+          const expectedDateIdx = dateIdx === dates.length - 1 ? 0 : dateIdx + 1;
+          const expectedCourseIdx = dateIdx === dates.length - 1 ? courseIdx + 1 : courseIdx;
+          assert.equal(job.courseIdx, expectedCourseIdx);
+          assert.equal(job.idx, expectedDateIdx);
+          assert.equal(job.retryCount, 0);
+          assert.equal(storage.json('plazacc-cmd').refreshAndClick, dates[expectedDateIdx]);
+        }
+      }
+    }
   }
 
-  createHarness({
-    now: now + 5,
-    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260811',
-    storage,
-    slots: [],
-  });
-  assert.equal(storage.json('plazacc-job').idx, 1);
-  assert.equal(storage.json('plazacc-job').retryCount, 0);
-  assert.equal(storage.json('plazacc-cmd').refreshAndClick, '13');
-
-  for (let retry = 1; retry <= 4; retry += 1) {
-    createHarness({
-      now: now + 5 + retry,
-      url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260813',
-      storage,
-      slots: [],
-    });
-    const job = storage.json('plazacc-job');
-    assert.equal(job.idx, 1);
-    assert.equal(job.retryCount, retry);
-    assert.equal(job.active, true);
-  }
-
-  const finalHarness = createHarness({
-    now: now + 10,
-    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260813',
-    storage,
-    slots: [],
-  });
   assert.equal(storage.getItem('plazacc-job'), null);
   assert.match(
     finalHarness.document.getElementById('m-status').innerHTML,
-    /최초 확인 \+ 4회 재조회 완료/,
+    /각 코스\/날짜 조합 총 3회 확인 완료/,
   );
+});
+
+test('auto10 prefers a later-date higher-priority course over an earlier-date lower-priority course', () => {
+  const now = new Date(2026, 7, 8, 10, 0, 1, 0).getTime();
+  const targetAt = new Date(2026, 7, 8, 10, 0, 0, 0).getTime();
+  const storage = storageWithJob(autoJob({
+    phase: 'triggered',
+    auto10started: true,
+    targetAt,
+    expiresAt: targetAt + 30 * 60 * 1000,
+    dates: ['8', '12'],
+    targetYm: '202608',
+  }));
+
+  for (let check = 1; check <= 3; check += 1) {
+    const harness = createHarness({
+      now: now + check,
+      url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260808',
+      storage,
+      slots: [{ date: '20260808', id: 't-in-early-date', time: '1030', course: 'T-IN' }],
+    });
+    assert.equal(harness.log.slotClicks.length, 0);
+  }
+
+  const jobAfterFirstDate = storage.json('plazacc-job');
+  assert.equal(jobAfterFirstDate.courseIdx, 0);
+  assert.equal(jobAfterFirstDate.idx, 1);
+
+  const higherPriorityHarness = createHarness({
+    now: now + 4,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260812',
+    storage,
+    slots: [{ date: '20260812', id: 't-out-later-date', time: '1100', course: 'T-OUT' }],
+  });
+
+  assert.equal(higherPriorityHarness.log.slotClicks.length, 1);
+  assert.match(higherPriorityHarness.log.slotClicks[0].href, /t-out-later-date/);
+  assert.equal(storage.json('plazacc-job').courseIdx, 0);
+  assert.equal(storage.json('plazacc-job').phase, 'reserving');
+});
+
+test('auto10 moves to Tiger IN after Tiger OUT is exhausted for every target date', () => {
+  const now = new Date(2026, 7, 8, 10, 0, 1, 0).getTime();
+  const targetAt = new Date(2026, 7, 8, 10, 0, 0, 0).getTime();
+  const storage = storageWithJob(autoJob({
+    phase: 'triggered',
+    auto10started: true,
+    targetAt,
+    expiresAt: targetAt + 30 * 60 * 1000,
+    dates: ['8', '12'],
+    targetYm: '202608',
+  }));
+  let tick = 0;
+
+  for (const day of ['08', '12']) {
+    for (let check = 1; check <= 3; check += 1) {
+      tick += 1;
+      createHarness({
+        now: now + tick,
+        url: `https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=202608${day}`,
+        storage,
+        slots: [],
+      });
+    }
+  }
+
+  const tigerInJob = storage.json('plazacc-job');
+  assert.equal(tigerInJob.courseIdx, 1);
+  assert.equal(tigerInJob.idx, 0);
+  assert.equal(storage.json('plazacc-cmd').refreshAndClick, '8');
+
+  const tigerInHarness = createHarness({
+    now: now + tick + 1,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.do?targetDate=20260808',
+    storage,
+    slots: [{ date: '20260808', id: 't-in-after-out', time: '1030', course: 'T-IN' }],
+  });
+
+  assert.equal(tigerInHarness.log.slotClicks.length, 1);
+  assert.match(tigerInHarness.log.slotClicks[0].href, /t-in-after-out/);
+  assert.equal(storage.json('plazacc-job').courseIdx, 1);
+  assert.equal(storage.json('plazacc-job').phase, 'reserving');
 });
 
 test('an expired triggered job is removed before it can click a stale slot', () => {

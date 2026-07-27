@@ -1,11 +1,12 @@
-// 플라자CC 매크로 v24 - 날짜별 재조회 4회 제한
+// 플라자CC 매크로 v25 - 코스 우선 순회 + 조합별 총 3회 확인
 (function(){
 'use strict';
 
-var MACRO_VERSION='24';
+var MACRO_VERSION='25';
 var AUTO_RECOVERY_MS=30*60*1000;
 var SCAN_RETRY_MS=750;
-var MAX_SCAN_RETRIES=4;
+// 최초 확인 1회 + 재조회 2회 = 코스/날짜 조합별 총 3회
+var MAX_SCAN_RETRIES=2;
 var _runtimeStorage=localStorage;
 try{if(typeof sessionStorage!=='undefined')_runtimeStorage=sessionStorage;}catch(e){}
 try{
@@ -426,11 +427,12 @@ function initTimeTable(){
     var dt=new Date(parseInt(d.substring(0,4)),parseInt(d.substring(4,6))-1,parseInt(d.substring(6,8)));
     return d.substring(4,6)+'/'+d.substring(6,8)+'('+dn[dt.getDay()]+')';
   }
-  // 코스 우선순위 고정: T-OUT → T-IN → L-OUT → L-IN
+  // auto10은 코스를 바깥쪽 루프로 돌고, 각 코스마다 목표 날짜를 처음부터 확인한다.
+  var COURSE_ORDER=['T-OUT','T-IN','L-OUT','L-IN'];
   var courseOrder={'T-OUT':0,'T-IN':1,'L-OUT':2,'L-IN':3};
-  function filterAndSort(slots,s){
+  function filterAndSort(slots,s,onlyCourse){
     var from=parseInt(s.timeFrom)*60,to=parseInt(s.timeTo)*60;
-    var f=slots.filter(function(x){var t=timeToMin(x.time);return t>=from&&t<to;});
+    var f=slots.filter(function(x){var t=timeToMin(x.time);return t>=from&&t<to&&(!onlyCourse||x.course===onlyCourse);});
     f.sort(function(a,b){var ca=courseOrder[a.course]!=null?courseOrder[a.course]:9;var cb=courseOrder[b.course]!=null?courseOrder[b.course]:9;return ca!==cb?ca-cb:timeToMin(a.time)-timeToMin(b.time);});
     return f;
   }
@@ -564,7 +566,7 @@ function initTimeTable(){
     }
     var dates=j.dates||[];
     if(!dates.length){clearJob('no-dates');return false;}
-    setJob({auto10started:true,phase:'triggered',targetAt:targetAt,expiresAt:expiresAt,triggeredAt:now.getTime(),triggerSource:source||'timer',retryCount:0});
+    setJob({auto10started:true,phase:'triggered',targetAt:targetAt,expiresAt:expiresAt,triggeredAt:now.getTime(),triggerSource:source||'timer',courseIdx:0,idx:0,retryCount:0});
     emitExtensionEvent('SCHEDULE_FIRED',{runId:j.runId||'',source:source||'timer'});
     console.log('[매크로:시간표] 목표 시각 도달 ('+(source||'timer')+'), '+dates[0]+'일 이동 시작');
     var statusEl=document.getElementById('m-status');
@@ -710,6 +712,8 @@ function initTimeTable(){
     }
   }
   if(job.active&&!job.runId){setJob({runId:'legacy-'+_now()+'-'+Math.floor(Math.random()*1000000)});job=getJob();}
+  // v24 이전에 시작된 작업도 첫 우선 코스부터 안전하게 이어간다.
+  if(job.active&&job.mode==='auto10'&&job.courseIdx===undefined){setJob({courseIdx:0});job=getJob();}
   if(job.active&&job.mode==='auto10'&&job.runId)registerBackgroundSchedule(job);
   var autoArmed=job.active&&job.mode==='auto10'&&!job.auto10started&&(job.phase===undefined||job.phase==='armed');
   if(autoArmed){
@@ -756,8 +760,9 @@ function initTimeTable(){
 
     setCmd({});
     setJob({phase:'scanning',lastScanAt:_now()});
-    var matched=filterAndSort(slots,st);
-    console.log('[매크로] 작업처리: 슬롯 '+slots.length+'개, 매칭 '+matched.length+'개');
+    var targetCourse=job.mode==='auto10'?COURSE_ORDER[job.courseIdx||0]:'';
+    var matched=filterAndSort(slots,st,targetCourse);
+    console.log('[매크로] 작업처리: '+(targetCourse?cn(targetCourse)+' / ':'')+'슬롯 '+slots.length+'개, 매칭 '+matched.length+'개');
     var dateLabel='';
     if(slots.length>0&&slots[0].date)dateLabel=fmtDate(slots[0].date);
 
@@ -768,15 +773,15 @@ function initTimeTable(){
       return;
     }
 
-    // auto10: 최초 확인 후 날짜별 최대 4회만 재조회하고 다음 날짜로 넘어간다.
+    // auto10: 코스/날짜 조합별 총 3회(최초 1 + 재조회 2) 확인한다.
     if(job.mode==='auto10'){
       var retries=job.retryCount||0;
       if(retries<MAX_SCAN_RETRIES){
         setJob({phase:'scanning',retryCount:retries+1});
-        console.log('[매크로] auto10 매칭없음 (슬롯:'+slots.length+'/매칭:'+matched.length+'), 재조회 '+(retries+1)+'/'+MAX_SCAN_RETRIES);
+        console.log('[매크로] auto10 '+cn(targetCourse)+' 매칭없음 (슬롯:'+slots.length+'/매칭:'+matched.length+'), 재조회 '+(retries+1)+'/'+MAX_SCAN_RETRIES);
         buildUI(st);
         var elR=document.getElementById('m-status');
-        if(elR)elR.innerHTML='<b style="color:#e65100">슬롯 확인 중...</b> 재조회 '+(retries+1)+'/'+MAX_SCAN_RETRIES+'<br>현재 슬롯 '+slots.length+'개, 매칭 '+matched.length+'개<br><span style="font-size:11px">날짜별 최초 확인 후 최대 4회 재조회</span>';
+        if(elR)elR.innerHTML='<b style="color:#e65100">'+cn(targetCourse)+' 슬롯 확인 중...</b> '+(retries+2)+'/3회차<br>현재 슬롯 '+slots.length+'개, 매칭 '+matched.length+'개<br><span style="font-size:11px">코스/날짜 조합별 총 3회 확인</span>';
         document.getElementById('m-stop').style.display='block';
         ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
         setTimeout(function(){
@@ -785,30 +790,36 @@ function initTimeTable(){
         },SCAN_RETRY_MS);
         return;
       }
-      console.log('[매크로] auto10 재조회 '+MAX_SCAN_RETRIES+'회 소진, 다음 날짜로');
+      console.log('[매크로] auto10 '+cn(targetCourse)+' 총 3회 확인 완료, 다음 조합으로');
       setJob({retryCount:0});
     }
 
-    // 매칭 없음 → 다음 단계
+    // 매칭 없음 → 다음 날짜. 현재 코스의 날짜를 다 보면 다음 코스의 첫 날짜로.
     var idx=(job.idx||0)+1;
+    var courseIdx=job.courseIdx||0;
 
     // 취소표 감시: 끝까지 갔으면 처음으로
     if(job.mode==='cancel'&&idx>=dates.length){
       idx=0;
     }
 
-    // 10시 자동: 모든 날짜 소진
     if(job.mode==='auto10'&&idx>=dates.length){
+      idx=0;
+      courseIdx++;
+    }
+
+    // 10시 자동: 모든 코스의 모든 날짜 소진
+    if(job.mode==='auto10'&&courseIdx>=COURSE_ORDER.length){
       clearJob('no-matching-slots');setCmd({});
       buildUI(st);
       var el2=document.getElementById('m-status');
-      if(el2)el2.innerHTML='<span style="color:red">모든 목표 날짜에서 매칭 슬롯을 찾지 못했습니다.</span><br>(각 날짜 최초 확인 + 4회 재조회 완료)';
+      if(el2)el2.innerHTML='<span style="color:red">모든 코스와 목표 날짜에서 매칭 슬롯을 찾지 못했습니다.</span><br>(각 코스/날짜 조합 총 3회 확인 완료)';
       return;
     }
 
     // 다음 날짜로 이동
     var nextDate=dates[idx];
-    setJob({idx:idx});
+    setJob({idx:idx,courseIdx:courseIdx});
 
     if(job.mode==='cancel'&&nextDate===currentDateFromUrl){
       // 취소표 감시: 같은 날짜 → 3초 후 시간표 자체 새로고침
@@ -830,7 +841,8 @@ function initTimeTable(){
       var modeLabel={'auto10':'10시 자동예약','cancel':'취소표 감시'}[job.mode]||job.mode;
       var color={'auto10':'#e65100','cancel':'#6a1b9a'}[job.mode]||'#333';
       var el4=document.getElementById('m-status');
-      if(el4)el4.innerHTML='<b style="color:'+color+'">'+modeLabel+'</b> '+nextDate+'일 확인 중 ('+(idx+1)+'/'+dates.length+')';
+      var courseProgress=job.mode==='auto10'?cn(COURSE_ORDER[courseIdx])+' / ':'';
+      if(el4)el4.innerHTML='<b style="color:'+color+'">'+modeLabel+'</b> '+courseProgress+nextDate+'일 확인 중 ('+(idx+1)+'/'+dates.length+')';
       document.getElementById('m-stop').style.display='block';
       ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display='none';});
       // 달력 DOM/onclick 변경에도 시간표 URL 직접 이동으로 복구한다.
@@ -1012,7 +1024,7 @@ function initTimeTable(){
       }
       var runId='run-'+_now()+'-'+Math.floor(Math.random()*1000000);
       var targetYm=currentFullDateFromUrl?currentFullDateFromUrl.substring(0,6):'';
-      var newJob={active:true,runId:runId,mode:mode,phase:mode==='auto10'?'armed':'scanning',dates:dates,targetYm:targetYm,idx:0,results:[],autoClick:true,settings:st,autoRefresh:true,auto10started:false,triggerH:tH,triggerM:tM,targetAt:targetAt,expiresAt:targetAt+AUTO_RECOVERY_MS,armedAt:now.getTime(),retryCount:0};
+      var newJob={active:true,runId:runId,mode:mode,phase:mode==='auto10'?'armed':'scanning',dates:dates,targetYm:targetYm,idx:0,courseIdx:0,results:[],autoClick:true,settings:st,autoRefresh:true,auto10started:false,triggerH:tH,triggerM:tM,targetAt:targetAt,expiresAt:targetAt+AUTO_RECOVERY_MS,armedAt:now.getTime(),retryCount:0};
       replaceJob(newJob);
       if(mode==='auto10'){
         var targetLabel=String(tH).padStart(2,'0')+':'+String(tM).padStart(2,'0');
