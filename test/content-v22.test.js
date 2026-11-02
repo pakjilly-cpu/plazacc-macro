@@ -150,6 +150,7 @@ function createHarness({
   slots = [],
   calendarElements = [],
   confirmResult = true,
+  timetablePending = false,
   actionLog,
 }) {
   const clock = { now };
@@ -226,7 +227,8 @@ function createHarness({
       return elements.get(id) || null;
     },
     querySelector(selector) {
-      if (selector === 'a[href*="confirmPopup"]') return slotElements[0] || null;
+      if (selector === '#yongin, #sorak, #cheju, #gdb' && timetablePending) return { style: { display: 'none' } };
+      if (selector === 'a[href*="confirmPopup"]') return (timetablePending && !window.__tableLoaded) ? null : slotElements[0] || null;
       if (selector === 'img[alt*="일자 선택"]') {
         return calendarElementList.find((element) =>
           element.tagName === 'IMG' && String(element.getAttribute('alt') || '').includes('일자 선택')) || null;
@@ -234,7 +236,7 @@ function createHarness({
       return null;
     },
     querySelectorAll(selector) {
-      if (selector === 'a[href*="confirmPopup"]') return slotElements;
+      if (selector === 'a[href*="confirmPopup"]') return (timetablePending && !window.__tableLoaded) ? [] : slotElements;
       if (selector === '.modal') return popupElements;
       if (selector === 'a, button, [role="button"], input[type="button"], input[type="image"], img[alt*="일자 선택"]') {
         return calendarElementList;
@@ -327,6 +329,7 @@ function createHarness({
   };
   if (sessionStorage) sandbox.sessionStorage = sessionStorage;
 
+  if (timetablePending) window.returnTeeOff = () => { window.__tableLoaded = true; };
   vm.runInNewContext(CONTENT_SOURCE, sandbox, { filename: CONTENT_PATH });
 
   return { clock, scheduler, storage, sessionStorage, log, location, document, window };
@@ -427,6 +430,65 @@ test('triggered job blocks a slot from the wrong date, requests calendar navigat
   assert.match(harness.location.href, /targetDate=20260713/);
   assert.equal(storage.json('plazacc-job').navigationDay, '13');
   assert.equal(storage.json('plazacc-job').navigationFallbackAt, now + 450);
+});
+
+test('slow timetable AJAX does not consume retries or reload before completion', () => {
+  const now = new Date(2026, 10, 2, 10, 0, 1).getTime();
+  const storage = storageWithJob(autoJob({ phase: 'triggered', auto10started: true, targetAt: now - 1000 }));
+  const h = createHarness({ now, storage, timetablePending: true,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.mvc?targetDate=20261113' });
+  h.scheduler.advance(2500);
+  assert.equal(h.log.reloads, 0);
+  assert.equal(storage.json('plazacc-job').retryCount, 0);
+  h.window.returnTeeOff({ ds: { Data: { ds_list: [] } } });
+  h.scheduler.advance(100);
+  assert.equal(storage.json('plazacc-job').retryCount, 1);
+  h.scheduler.advance(750);
+  assert.equal(h.log.reloads, 1);
+  assert.equal(storage.json('plazacc-diagnostics').at(-1).state, 'empty');
+});
+
+test('a slot arriving after the old reload deadline is clicked only after rendering', () => {
+  const now = new Date(2026, 10, 2, 10, 0, 1).getTime();
+  const storage = storageWithJob(autoJob({ phase: 'triggered', auto10started: true, targetAt: now - 1000 }));
+  const h = createHarness({ now, storage, timetablePending: true,
+    slots: [{ date: '20261113', time: '1030', course: 'T-OUT' }],
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.mvc?targetDate=20261113' });
+  h.scheduler.advance(2500);
+  assert.equal(h.log.slotClicks.length, 0);
+  assert.equal(h.log.reloads, 0);
+  h.window.returnTeeOff({ ds: { Data: { ds_list: [{}] } } });
+  h.scheduler.advance(100);
+  assert.equal(h.log.slotClicks.length, 1);
+  assert.equal(h.log.reloads, 0);
+});
+
+test('missing timetable response stops automation without claiming sold out', () => {
+  const now = new Date(2026, 10, 2, 10, 0, 1).getTime();
+  const storage = storageWithJob(autoJob({ phase: 'triggered', auto10started: true, targetAt: now - 1000 }));
+  const h = createHarness({ now, storage, timetablePending: true,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.mvc?targetDate=20261113' });
+  h.scheduler.advance(16000);
+  assert.equal(h.log.reloads, 0);
+  assert.equal(h.log.slotClicks.length, 0);
+  assert.equal(storage.json('plazacc-job'), null);
+  assert.equal(storage.json('plazacc-diagnostics').at(-1).state, 'query-timeout');
+  assert.match(h.document.getElementById('m-status').textContent, /조회 완료를 확인하지 못해/);
+  h.window.returnTeeOff({ ds: { Data: { ds_list: [] } } });
+  h.scheduler.advance(5000);
+  assert.equal(h.log.reloads, 0);
+});
+
+test('malformed timetable response pauses rather than spending empty-slot retries', () => {
+  const now = new Date(2026, 10, 2, 10, 0, 1).getTime();
+  const storage = storageWithJob(autoJob({ phase: 'triggered', auto10started: true, targetAt: now - 1000 }));
+  const h = createHarness({ now, storage, timetablePending: true,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.mvc?targetDate=20261113' });
+  h.window.returnTeeOff({});
+  h.scheduler.advance(1000);
+  assert.equal(h.log.reloads, 0);
+  assert.equal(storage.json('plazacc-job'), null);
+  assert.equal(storage.json('plazacc-diagnostics').at(-1).state, 'invalid-response');
 });
 
 test('serviceS01 with zero confirmPopup links initializes and keeps the triggered job alive for retry', () => {
@@ -981,6 +1043,66 @@ test('cancel-watch cycles across multiple target dates without losing its job', 
   assert.equal(session.json('plazacc-job').idx, 0);
   assert.equal(session.json('plazacc-cmd').refreshAndClick, '5');
   assert.equal(session.json('plazacc-job').active, true);
+});
+
+test('calendar reports sold-out dates without executing their alert handler, and opens them once available', () => {
+  const now = new Date(2026, 10, 2, 10, 0).getTime();
+  const session = storageWithJob(autoJob({ mode: 'cancel', targetYm: '202611', dates: ['24', '26'] }));
+  session.setItem('plazacc-cmd', JSON.stringify({ clickAfterReload: '24', clickAfterReloadStart: now, runId: 'run-regression' }));
+  const closed = createHarness({ now, storage: new MemoryStorage(), sessionStorage: session,
+    url: 'https://booking.hanwharesort.co.kr/serviceF02.mvc',
+    calendarElements: [{ textContent: '24', 'data-date': '20261124', href: '#none', onclick: "alert('※해당일자는 예약이 마감되었습니다')" }] });
+  closed.scheduler.advance(100);
+  assert.equal(closed.log.calendarClicks.length, 0);
+  assert.equal(session.json('plazacc-cmd').dateUnavailable, '24');
+  session.setItem('plazacc-cmd', JSON.stringify({ clickAfterReload: '24', clickAfterReloadStart: now + 3000, runId: 'run-regression' }));
+  const open = createHarness({ now: now + 3000, storage: new MemoryStorage(), sessionStorage: session,
+    url: 'https://booking.hanwharesort.co.kr/serviceF02.mvc',
+    calendarElements: [{ textContent: '24', 'data-date': '20261124', href: '#none', 'data-teecount': '1', onclick: "checkReserveRule('20261124')" }] });
+  open.scheduler.advance(100);
+  assert.equal(open.log.calendarClicks.length, 1);
+  assert.equal(session.json('plazacc-cmd').dateClicked, '24');
+});
+
+test('cancel watch cycles closed dates without direct navigation and stop cancels the next check', () => {
+  const now = new Date(2026, 10, 2, 10, 50).getTime();
+  const session = new MemoryStorage();
+  const h = createHarness({ now, storage: new MemoryStorage(), sessionStorage: session,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.mvc?targetDate=20261117' });
+  setForm(h, { dates: '24,26' });
+  h.document.getElementById('m-cancel').onclick();
+  const runId = session.json('plazacc-job').runId;
+  session.setItem('plazacc-cmd', JSON.stringify({ dateUnavailable: '24', runId }));
+  h.scheduler.advance(450);
+  assert.equal(h.log.navigations.length, 0);
+  assert.equal(session.json('plazacc-job').phase, 'waiting-calendar');
+  assert.match(h.document.getElementById('m-status').textContent, /24일.*26일/);
+  h.scheduler.advance(3000);
+  assert.equal(session.json('plazacc-cmd').refreshAndClick, '26');
+  session.setItem('plazacc-cmd', JSON.stringify({ dateUnavailable: '26', runId }));
+  h.scheduler.advance(450);
+  assert.equal(session.json('plazacc-job').idx, 0);
+  h.document.getElementById('m-stop').onclick();
+  h.scheduler.advance(5000);
+  assert.equal(session.json('plazacc-cmd'), null);
+  assert.equal(h.log.navigations.length, 0);
+  assert.equal(h.log.reloads, 0);
+});
+
+test('cancel watch waits for slow calendar and stops on timeout without forcing a timetable URL', () => {
+  const now = new Date(2026, 10, 2, 10, 50).getTime();
+  const session = new MemoryStorage();
+  const h = createHarness({ now, storage: new MemoryStorage(), sessionStorage: session,
+    url: 'https://booking.hanwharesort.co.kr/serviceS01.mvc?targetDate=20261117' });
+  setForm(h, { dates: '24,26' });
+  h.document.getElementById('m-cancel').onclick();
+  h.scheduler.advance(3000);
+  assert.equal(h.log.navigations.length, 0);
+  assert.equal(session.json('plazacc-job').active, true);
+  h.scheduler.advance(18000);
+  assert.equal(session.json('plazacc-job'), null);
+  assert.equal(h.log.navigations.length, 0);
+  assert.match(h.document.getElementById('m-status').textContent, /취소감시를 중지/);
 });
 
 test('stop during a reservation attempt cancels the delayed direct-call fallback', () => {

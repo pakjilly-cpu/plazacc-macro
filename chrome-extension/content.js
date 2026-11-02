@@ -1,8 +1,8 @@
-// 플라자CC 매크로 v25 - 코스 우선 순회 + 조합별 총 3회 확인
+// 플라자CC 매크로 v27 - 마감 날짜는 달력 상태로 취소 감시
 (function(){
 'use strict';
 
-var MACRO_VERSION='25';
+var MACRO_VERSION='27';
 var AUTO_RECOVERY_MS=30*60*1000;
 var SCAN_RETRY_MS=750;
 // 최초 확인 1회 + 재조회 2회 = 코스/날짜 조합별 총 3회
@@ -135,13 +135,68 @@ setInterval(function(){
   }
 }, 1000);
 
+// URL 로드는 AJAX 시간표 완료가 아니다. 빈 표를 매진으로 취급하지 않는다.
+var timetableResult=null;
+function recordTimetable(state,count){
+  timetableResult={state:state,count:count,at:_now()};
+  try{
+    var history=JSON.parse(_runtimeStorage.getItem('plazacc-diagnostics')||'[]');
+    history.push({state:state,count:count,at:_now(),date:(window.location.href.match(/targetDate=(\d{8})/)||[])[1]||''});
+    _runtimeStorage.setItem('plazacc-diagnostics',JSON.stringify(history.slice(-40)));
+  }catch(e){}
+  console.log('[매크로:조회] '+state+' / 항목 '+count);
+}
+function waitForTimetable(done){
+  var started=_now();
+  var original=window.returnTeeOff;
+  if(typeof original==='function'){
+    window.returnTeeOff=function(data){
+      try{
+        var result=original.apply(this,arguments);
+        var rows=data&&data.ds&&data.ds.Data&&data.ds.Data.ds_list;
+        if(Array.isArray(rows))recordTimetable(rows.length?'loaded':'empty',rows.length);
+        else recordTimetable('invalid-response',0);
+        return result;
+      }catch(e){recordTimetable('render-error',0);throw e;}
+    };
+  }
+  function poll(){
+    var links=document.querySelectorAll('a[href*="confirmPopup"]');
+    var table=document.querySelector('#yongin, #sorak, #cheju, #gdb');
+    var completed=timetableResult&&(timetableResult.state==='loaded'||timetableResult.state==='empty');
+    // 이미 완료된 응답은 표시된 표로도 식별한다. 숨겨진 초기 표는 완료가 아니다.
+    if(completed||links.length||(table&&table.style.display!=='none')){
+      if(!completed)recordTimetable('rendered',links.length);
+      done();return;
+    }
+    // 기존 페이지 변형에서 표/콜백 자체가 없으면 기존 동작을 유지한다.
+    if(!table&&typeof original!=='function'){done();return;}
+    if(_now()-started>=15000||(timetableResult&&/error|invalid/.test(timetableResult.state))){
+      if(!timetableResult)recordTimetable('query-timeout',0);
+      clearJob('timetable-query-failed');
+      done();
+      var status=document.getElementById('m-status');
+      if(status)status.textContent='시간표 조회 완료를 확인하지 못해 자동 작업을 중지했습니다. 예약 마감이나 매크로 차단으로 확정할 수 없습니다. 사이트 알림과 로그인 상태를 확인하세요.';
+      return;
+    }
+    setTimeout(poll,100);
+  }
+  poll();
+}
+
 // 페이지 감지: 100ms 간격 폴링
 (function detectPage(n){
   var url='';try{url=window.location.href;}catch(e){}
   // 예약 가능 링크가 0개여도 URL로 시간표를 판별해야 10시 후 재시도가 살아난다.
   var isTimeTable = /serviceS01/i.test(url)||!!document.querySelector('a[href*="confirmPopup"]');
   var isCalendar = !isTimeTable&&(/serviceF02/i.test(url)||!!document.querySelector('img[alt*="일자 선택"]'));
-  if(isTimeTable){ initTimeTable(); return; }
+  if(isTimeTable){
+    var pending=getJob();
+    // 정각 타이머는 조회 지연과 독립적으로 유지한다.
+    if(pending.active&&pending.mode==='auto10'&&!pending.auto10started)initTimeTable();
+    else waitForTimetable(initTimeTable);
+    return;
+  }
   if(isCalendar){ initCalendar(); return; }
   var hasJob = false;
   try{ hasJob = !!getJob().active; }catch(e){}
@@ -237,6 +292,8 @@ function initCalendar(){
     if(!el)return'';
     var attrs=['data-date','data-target-date','value','title','alt','aria-label','onclick','href'];
     var nodes=[el];
+    var dateCell=el.closest&&el.closest('[data-date]');
+    if(dateCell)nodes.push(dateCell);
     try{
       var descendants=el.querySelectorAll('[data-date],[data-target-date],[onclick],[href]');
       for(var n=0;n<descendants.length;n++)nodes.push(descendants[n]);
@@ -309,6 +366,13 @@ function initCalendar(){
     }
     for(var i=0;i<els.length;i++){
       if(els[i].day===target){
+        var element=els[i].element;
+        var action=(element.getAttribute('onclick')||'')+' '+(element.getAttribute('href')||'');
+        // 사이트가 명시한 마감/제한 알림은 실행하지 않는다.
+        if(/\balert\s*\(/.test(action)||element.getAttribute('aria-disabled')==='true'||
+            (element.getAttribute('data-teecount')!==null&&Number(element.getAttribute('data-teecount'))===0)){
+          return 'unavailable';
+        }
         els[i].element.click();
         console.log('[매크로] 날짜 '+target+' 클릭 (tag='+els[i].element.tagName+')');
         return true;
@@ -354,7 +418,9 @@ function initCalendar(){
 
     if(cmd.click){
       var d=cmd.click;
-      if(clickDate(d))setCmd({dateClicked:d,runId:cmd.runId||'',clickedAt:_now()});
+      var clickResult=clickDate(d);
+      if(clickResult==='unavailable')setCmd({dateUnavailable:d,runId:cmd.runId||'',checkedAt:_now()});
+      else if(clickResult)setCmd({dateClicked:d,runId:cmd.runId||'',clickedAt:_now()});
       else setCmd({dateNotFound:d,runId:cmd.runId||'',availableDates:getClickableDates().join(','),failedAt:_now()});
       return;
     }
@@ -378,7 +444,10 @@ function initCalendar(){
         setCmd({dateNotFound:d3,runId:cmd.runId||'',availableDates:available,failedAt:_now()});
         return;
       }
-      if(clickDate(d3)){
+      var afterReloadResult=clickDate(d3);
+      if(afterReloadResult==='unavailable'){
+        setCmd({dateUnavailable:d3,runId:cmd.runId||'',checkedAt:_now()});
+      }else if(afterReloadResult){
         console.log('[매크로:달력] 리로드 후 날짜 '+d3+' 클릭 성공');
         setCmd({dateClicked:d3,runId:cmd.runId||'',clickedAt:_now()});
       }else if(!cmd.lastLoggedAt||(_now()-cmd.lastLoggedAt)>1000){
@@ -395,6 +464,9 @@ function initCalendar(){
 
 // ===== 시간표 iframe =====
 function initTimeTable(){
+  // 사이트의 내용 기반 높이 계산은 fixed 패널을 포함하지 않는다.
+  // 빈 시간표에서도 조작 패널이 1~2줄로 잘리지 않도록 최소 표시 공간 확보.
+  try{if(window.frameElement)window.frameElement.style.minHeight='560px';}catch(e){}
   try{document.documentElement.setAttribute('data-plazacc-main-ready',MACRO_VERSION);}catch(e){}
   if(document.getElementById('plazacc-macro-panel'))return;
   console.log('[매크로] 시간표');
@@ -521,6 +593,8 @@ function initTimeTable(){
     setJob({phase:'navigating',navigationDay:String(day),navigationStartedAt:_now()});
   }
   function directNavigateToDay(day,source){
+    var calendarStatus=getCmd();
+    if(calendarStatus.dateUnavailable)return false;
     var curUrl=window.location.href;
     var dm=curUrl.match(/targetDate=(\d{6})(\d{2})/);
     if(!dm){
@@ -543,6 +617,39 @@ function initTimeTable(){
       var j=getJob();
       if(!j.active||j.runId!==runId||j.reserving)return;
       var cmd=getCmd();
+      if(j.mode==='cancel'){
+        // 달력 AJAX가 끝나기 전에 시간표 URL을 강제로 열지 않는다.
+        if(String(j.navigationDay)!==String(day))return;
+        if(cmd.runId===runId&&String(cmd.dateUnavailable)===String(day)){
+          var nextIdx=((j.idx||0)+1)%(j.dates||[]).length;
+          var nextDay=(j.dates||[])[nextIdx];
+          setJob({phase:'waiting-calendar',idx:nextIdx});
+          var status=document.getElementById('m-status');
+          if(status)status.textContent=day+'일: 사이트에서 예약 불가로 표시됨. 시간표를 열지 않고 3초 후 '+nextDay+'일 달력을 확인합니다.';
+          setTimeout(function(){
+            var latest=getJob();
+            if(!latest.active||latest.runId!==runId||latest.mode!=='cancel'||latest.reserving)return;
+            issueDateNavigation(nextDay,'cancel-calendar-watch');
+            watchDateNavigation(nextDay,450);
+          },3000);
+          return;
+        }
+        if(_now()-(j.navigationStartedAt||0)<20000){watchDateNavigation(day,250);return;}
+        clearJob('calendar-navigation-timeout');setCmd({});
+        var failedStatus=document.getElementById('m-status');
+        if(failedStatus)failedStatus.textContent='달력 또는 시간표 응답을 확인하지 못해 취소감시를 중지했습니다. 사이트 알림과 로그인 상태를 확인 후 다시 시작하세요.';
+        ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='';});
+        var stop=document.getElementById('m-stop');if(stop)stop.style.display='none';
+        return;
+      }
+      if(cmd.runId===runId&&cmd.dateUnavailable){
+        clearJob('calendar-date-unavailable');setCmd({});
+        var unavailableStatus=document.getElementById('m-status');
+        if(unavailableStatus)unavailableStatus.textContent='사이트에서 목표 날짜를 예약 불가로 표시하여 자동예약을 중지했습니다. 취소감시로 예약 가능 상태를 확인할 수 있습니다.';
+        ['m-auto10','m-cancel','m-scan','m-test'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='';});
+        var unavailableStop=document.getElementById('m-stop');if(unavailableStop)unavailableStop.style.display='none';
+        return;
+      }
       console.log('[매크로] 달력 핸드오프 watchdog: day='+day+' cmd='+JSON.stringify(cmd));
       directNavigateToDay(day,cmd.dateNotFound?'date-not-found':'no-navigation');
     },delay||450);
